@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>7-0 · Sete a Zero · Build · Simulate · 7-0</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Anton&family=Fraunces:opsz,wght@9..144,700;9..144,900&family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ['Fraunces', 'Georgia', 'serif'],
+              sans: ['Inter', 'ui-sans-serif', 'system-ui'],
+              logo: ['Anton', 'Impact', 'sans-serif'],
+            },
+            colors: {
+              cream: {
+                DEFAULT: '#ede5d2',
+                soft: '#f4eedb',
+                deep: '#e3dac3',
+              },
+              ink: {
+                DEFAULT: '#101010',
+                soft: '#2a2a28',
+                mute: '#6f6a5e',
+              },
+              accent: {
+                DEFAULT: '#e8533a',
+                deep: '#c93f29',
+              },
+              pitch: {
+                light: '#5e9152',
+                dark: '#4f7d46',
+                line: 'rgba(255,255,255,0.85)',
+              },
+              goldish: '#c69e3a',
+              winGreen: '#1e7a3e',
+            },
+            boxShadow: {
+              chip: '0 1px 0 0 rgba(0,0,0,0.06)',
+              card: '0 1px 2px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.03)',
+            },
+          },
+        },
+      };
+    </script>
+
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body class="bg-cream text-ink font-sans antialiased">
+    <div id="root"></div>
+
+    <!-- React UMD -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+    ></script>
+
+    <!-- Babel for JSX in-browser -->
+    <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+    <!-- Game modules (attach to window). Cache-buster keeps prototyping painless. -->
+    <script>
+      (function () {
+        var v = Date.now();
+        var files = ['data.js','rng.js','sim.js','odds.js','store.js'];
+        files.forEach(function (f) {
+          document.write('<script src="./src/' + f + '?v=' + v + '"></scr' + 'ipt>');
+        });
+        document.write('<script type="text/babel" data-presets="react" src="./src/app.jsx?v=' + v + '"></scr' + 'ipt>');
+      })();
+    </script>
+  </body>
+</html>
