@@ -5,7 +5,7 @@
  */
 (function () {
   const { simulate } = window.GAME_SIM;
-  const { CONFIG, OPPONENTS, groupOf } = window.GAME_DATA;
+  const { CONFIG, groupOf, getCompetition, DEFAULT_COMPETITION } = window.GAME_DATA;
 
   const MAX_ODDS = 100.0;
   function clampOdds(o) { return Math.max(1.01, Math.min(MAX_ODDS, o)); }
@@ -26,21 +26,27 @@
   // Returns { samples, stats }:
   //   stats.winsCount[0..7], stats.goalsHist (per-round), stats.scoredHist,
   //   stats.concededHist, stats.cupWon (count), stats.round1x2[i] = {W,D,L,X}
-  function runMC(baseSeed, lineup, formation, samples = CONFIG.MC_SAMPLES) {
+  function runMC(baseSeed, lineup, formation, competition, samples = CONFIG.MC_SAMPLES) {
+    const comp = competition || getCompetition(DEFAULT_COMPETITION);
+    const opponents = comp.opponents;
+    const nRounds = opponents.length;
     const stats = {
       n: samples,
-      winsCount: Array(8).fill(0),
+      nRounds,
+      // index 0..nRounds — a run can win every match, so the histogram needs
+      // one bucket more than there are rounds.
+      winsCount: Array(nRounds + 1).fill(0),
       scoredSum: 0, scoredHist: [],
       concededSum: 0, concededHist: [],
       cupWon: 0,
-      round1x2: OPPONENTS.map(() => ({ W:0, D:0, L:0, X:0 })),
+      round1x2: opponents.map(() => ({ W:0, D:0, L:0, X:0 })),
       // per-round histograms (total goals and scored separately)
-      roundTotals:  OPPONENTS.map(() => []),
-      roundScored:  OPPONENTS.map(() => []),
+      roundTotals:  opponents.map(() => []),
+      roundScored:  opponents.map(() => []),
     };
     for (let i = 0; i < samples; i++) {
-      const r = simulate({ seed: mcSeed(baseSeed, i), lineup, formation });
-      stats.winsCount[Math.min(7, r.wins)]++;
+      const r = simulate({ seed: mcSeed(baseSeed, i), lineup, formation, opponents });
+      stats.winsCount[Math.min(nRounds, r.wins)]++;
       stats.scoredSum += r.totalScored;
       stats.scoredHist.push(r.totalScored);
       stats.concededSum += r.totalConceded;
@@ -119,8 +125,10 @@
   }
 
   // Convert MC stats into priced markets, applying memory boost if enabled.
-  function priceAllMarkets(baseSeed, lineup, formation, mode) {
-    const stats = runMC(baseSeed, lineup, formation);
+  function priceAllMarkets(baseSeed, lineup, formation, mode, competition) {
+    const comp = competition || getCompetition(DEFAULT_COMPETITION);
+    const opponents = comp.opponents;
+    const stats = runMC(baseSeed, lineup, formation, comp);
     const n = stats.n;
     const boost = mode === 'MEMORY' ? CONFIG.MEMORY_BOOST : 1.0;
 
@@ -152,15 +160,37 @@
           { id:'ouc-over',  label:'Over 4.5',  value:{type:'over', line:4.5},  prob: probOverConceded(4.5),   odds: odds(probOverConceded(4.5)) },
           { id:'ouc-under', label:'Under 4.5', value:{type:'under',line:4.5},  prob: 1-probOverConceded(4.5), odds: odds(1-probOverConceded(4.5)) },
         ],
+        // Group rounds price a normal 1X2. Knockout rounds CANNOT draw — a
+        // level match is settled by penalties — so offering "Draw" there is a
+        // market that can never win. They price "to qualify" instead, which is
+        // what a real book offers on a tie.
         ROUND_1X2: stats.round1x2.map((r, idx) => {
+          const opp = opponents[idx];
           const total = r.W + r.D + r.L + r.X;
+          const meta = {
+            round: idx, stage: opp.stage, label: opp.label,
+            opponent: opp.opponent, flag: opp.flag,
+          };
+          if (opp.knockout) {
+            const isFinal = opp.stage === 'FINAL';
+            const pQ = r.W / total;              // advancing, however it happened
+            return {
+              ...meta,
+              type: 'QUALIFY',
+              title: isFinal ? 'Lift the trophy' : 'To qualify',
+              selections: [
+                { id:`r${idx}-Q`, label: isFinal ? 'Win the final' : 'Qualify',
+                  value:'Q', prob:pQ,     odds: odds(pQ) },
+                { id:`r${idx}-N`, label: isFinal ? 'Lose the final' : 'Knocked out',
+                  value:'N', prob:1 - pQ, odds: odds(1 - pQ) },
+              ],
+            };
+          }
           const pW = r.W / total, pD = r.D / total, pL = (r.L + r.X) / total;
           return {
-            round: idx,
-            stage: OPPONENTS[idx].stage,
-            label: OPPONENTS[idx].label,
-            opponent: OPPONENTS[idx].opponent,
-            flag: OPPONENTS[idx].flag,
+            ...meta,
+            type: '1X2',
+            title: 'Match result',
             selections: [
               { id:`r${idx}-W`, label:'Win',  value:'W', prob:pW, odds: odds(pW) },
               { id:`r${idx}-D`, label:'Draw', value:'D', prob:pD, odds: odds(pD) },
@@ -168,7 +198,7 @@
             ],
           };
         }),
-        ROUND_OU: OPPONENTS.map((opp, idx) => {
+        ROUND_OU: opponents.map((opp, idx) => {
           const LINE = 2.5;
           const pO = probRoundOver(idx, LINE);
           return {
@@ -210,8 +240,16 @@
       case 'ROUND_1X2': {
         const round = r.rounds[bet.selection.round];
         if (!round) return 'VOID';
+        const v = bet.selection.value;
+        // Knockout rounds: "to qualify". Advancing means winning the tie,
+        // whether in normal time or on penalties. Never reaching the round
+        // (eliminated earlier) counts as not qualifying.
+        if (v === 'Q' || v === 'N') {
+          const advanced = round.outcome === 'W';
+          return ((v === 'Q') === advanced) ? 'WON' : 'LOST';
+        }
         const actual = round.outcome === 'X' ? 'L' : round.outcome;
-        return actual === bet.selection.value ? 'WON' : 'LOST';
+        return actual === v ? 'WON' : 'LOST';
       }
       case 'ROUND_GOALSCORER': {
         const round = r.rounds[bet.selection.round];
