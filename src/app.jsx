@@ -164,9 +164,18 @@ function IntroScreen() {
             <div className={`w-28 h-28 rounded-2xl bg-cream-soft border-2 border-ink flex items-center justify-center ${s.rolling ? 'roll-spin' : ''}`}>
               <Dice size={56} />
             </div>
-            <button className="cta" onClick={() => actions.rollNew(compId)} disabled={s.rolling}>
-              {s.rolling ? 'Rolling…' : `Roll & start drafting`} <Dice size={20} />
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <button className="cta" onClick={() => actions.rollNew(compId)} disabled={s.rolling}>
+                {s.rolling ? 'Rolling…' : `Roll & start drafting`} <Dice size={20} />
+              </button>
+              <button className="pill" onClick={() => actions.quickPlay(compId)} disabled={s.rolling}>
+                Pick my team for me
+              </button>
+            </div>
+            <div className="text-[11px] text-ink-mute max-w-[46ch] leading-snug">
+              Drafting takes eleven picks. Short on time? We'll build an XI for you —
+              re-roll the whole team for {nairaFromKobo(CONFIG.REROLL_COST_KOBO)} until you like it.
+            </div>
             <div className="text-xs text-ink-mute uppercase tracking-widest">
               Starting balance · {nairaFromKobo(s.balanceKobo)}
             </div>
@@ -243,7 +252,14 @@ function DraftScreen() {
             <div className="label text-ink-mute mt-4">Mode · Difficulty</div>
             <div className="grid grid-cols-2 gap-2 mt-2">
               <button className={`chip ${session.mode === 'CLASSIC' ? 'active' : ''}`} onClick={() => actions.setMode('CLASSIC')}>Classic</button>
-              <button className={`chip ${session.mode === 'MEMORY' ? 'active' : ''}`} onClick={() => actions.setMode('MEMORY')}>From memory</button>
+              {/* From memory is about drafting blind — it has nothing to hide
+                  once the XI was picked for you, so it's off in quick play. */}
+              <button
+                className={`chip ${session.mode === 'MEMORY' ? 'active' : ''}`}
+                onClick={() => actions.setMode('MEMORY')}
+                disabled={session.quickPlay}
+                title={session.quickPlay ? 'Not available when the team was picked for you' : undefined}
+              >From memory</button>
             </div>
             {isMemory && (
               <div className="text-[11px] text-ink-mute mt-2 leading-snug">
@@ -267,7 +283,30 @@ function DraftScreen() {
             <button className="chip mt-3 w-full" onClick={actions.clearLineup} disabled={s.lineup.length === 0}>Clear pitch</button>
           </div>
 
-          {!complete && (
+          {session.quickPlay && (
+            <div className="bg-white rounded-md shadow-card p-4">
+              <div className="label text-ink-mute">Your team</div>
+              <div className="text-[11px] text-ink-mute mt-1">
+                Picked for you from {comp.squadPools.length} {comp.vocab.team.toLowerCase()} sides.
+                Don't like it? Re-roll the whole XI.
+              </div>
+              <button
+                className="chip w-full mt-2"
+                disabled={s.drawing || lowBalance}
+                onClick={actions.rerollTeam}
+              >
+                {s.drawing ? 'Picking…' : `Re-roll team · ${nairaFromKobo(CONFIG.REROLL_COST_KOBO)}`}
+              </button>
+              {lowBalance && (
+                <div className="text-[11px] text-accent mt-2">
+                  Not enough balance to re-roll.
+                </div>
+              )}
+              <div className="text-[11px] text-ink-mute mt-2">Re-rolls · {session.rerollsUsed}</div>
+            </div>
+          )}
+
+          {!complete && !session.quickPlay && (
             <div className="bg-white rounded-md shadow-card p-4">
               <div className="label text-ink-mute">Skip this draw</div>
               <div className="text-[11px] mt-1">
@@ -336,7 +375,7 @@ function DraftScreen() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3">
               <div className="label text-ink-mute">
-                {complete ? 'XI complete'
+                {complete ? (session.quickPlay ? 'Your XI — picked for you' : 'XI complete')
                   : armedPlayer ? <>Pick a slot for <span className="text-accent font-bold">{isMemory ? '?' : armedPlayer.name}</span> — eligible slots are highlighted</>
                   : 'Pick a player from the squad on the right'}
               </div>
