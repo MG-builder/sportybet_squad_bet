@@ -4,7 +4,15 @@
  */
 const { useEffect, useMemo, useState, useRef, useCallback } = React;
 const { store, actions, nairaFromKobo } = window.GAME_STORE;
-const { SQUAD_POOLS, FORMATIONS, OPPONENTS, PRE_MARKETS, GEN_MARKETS, CONFIG, groupOf } = window.GAME_DATA;
+const { FORMATIONS, PRE_MARKETS, GEN_MARKETS, CONFIG, groupOf,
+        COMPETITIONS, DEFAULT_COMPETITION, getCompetition } = window.GAME_DATA;
+
+// The competition the current session is playing. Components read the ladder
+// and vocabulary from here rather than from any global.
+function useCompetition() {
+  const s = useStore();
+  return getCompetition(s.session?.competition || DEFAULT_COMPETITION);
+}
 const { simulate } = window.GAME_SIM;
 
 // ---------- hook ----------
@@ -15,16 +23,21 @@ function useStore() {
 }
 
 // ---------- determinism self-check (runs once in console) ----------
+// Runs for every registered competition, so a newly added one is covered
+// automatically. Same seed + same XI must always give the same run.
 (function determinismSelfCheck() {
   const seed = 'TEST-SEED';
-  const pool = SQUAD_POOLS[0];
-  const lineup = FORMATIONS['4-3-3'].map((slot, i) => ({ slot, player: pool.players[i] }));
-  const a = simulate({ seed, lineup, formation: '4-3-3' });
-  const b = simulate({ seed, lineup, formation: '4-3-3' });
-  const same = JSON.stringify(a.rounds.map(r=>[r.scored,r.conceded,r.outcome]))
-             === JSON.stringify(b.rounds.map(r=>[r.scored,r.conceded,r.outcome]));
-  if (same) console.log('%c[7-0] determinism check: PASS', 'color:#1e7a3e;font-weight:bold');
-  else      console.error('[7-0] determinism check FAILED');
+  const failed = [];
+  Object.values(COMPETITIONS).forEach(comp => {
+    const pool = comp.squadPools[0];
+    const lineup = FORMATIONS['4-3-3'].map((slot, i) => ({ slot, player: pool.players[i] }));
+    const args = { seed, lineup, formation: '4-3-3', opponents: comp.opponents };
+    const fp = r => JSON.stringify(r.rounds.map(x => [x.scored, x.conceded, x.outcome]));
+    if (fp(simulate(args)) !== fp(simulate(args))) failed.push(comp.id);
+  });
+  const n = Object.keys(COMPETITIONS).length;
+  if (failed.length === 0) console.log(`%c[7-0] determinism check: PASS (${n} competition${n===1?'':'s'})`, 'color:#1e7a3e;font-weight:bold');
+  else console.error('[7-0] determinism check FAILED for:', failed.join(', '));
 })();
 
 // ---------- icons ----------
@@ -98,6 +111,9 @@ function BalancePill() {
 // ====================================================================
 function IntroScreen() {
   const s = useStore();
+  const [compId, setCompId] = useState(DEFAULT_COMPETITION);
+  const comp = getCompetition(compId);
+  const comps = Object.values(COMPETITIONS);
   return (
     <div>
       <TopBar
@@ -111,16 +127,45 @@ function IntroScreen() {
           <div className="label text-ink-mute">How it works</div>
           <h2 className="display text-4xl mt-2">Draft 11. From any era.</h2>
           <p className="text-ink-soft mt-3 leading-relaxed">
-            Roll the dice. Get a country and a World Cup year. Pick <strong>one</strong> player from
-            that squad — then the dice rolls again. Repeat until you have an XI from 11 different
-            historical sides. Don't like a draw? You get one free re-roll per draw — additional re-rolls cost ₦10.
+            Roll the dice. Get a {comp.vocab.team.toLowerCase()} and a {comp.vocab.edition.toLowerCase()}. Pick <strong>one</strong> player
+            from that squad — then the dice rolls again. Repeat until you have an XI from 11 different
+            historical sides. Don't like a draw? Your first re-roll is free — after that they cost ₦10.
           </p>
+
+          {/* Competition picker */}
+          <div className="mt-7">
+            <div className="label text-ink-mute mb-2">Competition</div>
+            <div className={`grid gap-3 ${comps.length > 2 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              {comps.map(c => {
+                const active = c.id === compId;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setCompId(c.id)}
+                    disabled={s.rolling}
+                    className={`rounded-xl border-2 p-4 text-left transition
+                      ${active ? 'border-accent bg-accent/5' : 'border-ink/15 hover:border-ink/40'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{c.icon}</span>
+                      <span className="font-bold">{c.name}</span>
+                    </div>
+                    <div className="text-[11px] text-ink-mute mt-1 leading-snug">{c.blurb}</div>
+                    <div className="text-[10px] text-ink-mute uppercase tracking-widest mt-2">
+                      {c.squadPools.length} squads · {c.opponents.length} matches
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="mt-8 flex flex-col items-center gap-4">
             <div className={`w-28 h-28 rounded-2xl bg-cream-soft border-2 border-ink flex items-center justify-center ${s.rolling ? 'roll-spin' : ''}`}>
               <Dice size={56} />
             </div>
-            <button className="cta" onClick={actions.rollNew} disabled={s.rolling}>
-              {s.rolling ? 'Rolling…' : 'Roll & start drafting'} <Dice size={20} />
+            <button className="cta" onClick={() => actions.rollNew(compId)} disabled={s.rolling}>
+              {s.rolling ? 'Rolling…' : `Roll & start drafting`} <Dice size={20} />
             </button>
             <div className="text-xs text-ink-mute uppercase tracking-widest">
               Starting balance · {nairaFromKobo(s.balanceKobo)}
@@ -138,6 +183,7 @@ function IntroScreen() {
 // ====================================================================
 function DraftScreen() {
   const s = useStore();
+  const comp = useCompetition();
   const session = s.session;
   if (!session) return null;
   const draw = session.currentDraw;
@@ -210,6 +256,14 @@ function DraftScreen() {
             <div className="label text-ink-mute">Draft progress</div>
             <div className="display text-3xl mt-1">{s.lineup.length}/11</div>
             <div className="bar mt-2"><span className="att" style={{ width: `${(s.lineup.length/11)*100}%`}} /></div>
+            {s.lastFormationDrop && (
+              <div className="mt-3 text-[11px] leading-snug rounded-md border border-ink/20 bg-cream-soft px-3 py-2">
+                <span className="font-semibold">
+                  On the bench · {s.lastFormationDrop.names.length}
+                </span>
+                <span className="text-ink-soft"> — {s.lastFormationDrop.names.join(', ')} {s.lastFormationDrop.names.length === 1 ? 'has' : 'have'} no position in {s.lastFormationDrop.formation}. Switch back and {s.lastFormationDrop.names.length === 1 ? 'he' : 'they'}'ll return to the XI.</span>
+              </div>
+            )}
             <button className="chip mt-3 w-full" onClick={actions.clearLineup} disabled={s.lineup.length === 0}>Clear pitch</button>
           </div>
 
@@ -222,19 +276,16 @@ function DraftScreen() {
                   : <span className="text-ink-mute">Additional re-rolls · {nairaFromKobo(CONFIG.REROLL_COST_KOBO)} each</span>}
               </div>
               <div className="grid grid-cols-1 gap-2 mt-2">
-                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('TEAM')}>Re-roll team</button>
-                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('CUP')}>Re-roll year</button>
-                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('BOTH')}>Re-roll both</button>
+                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('TEAM')}>{comp.vocab.rerollTeam}</button>
+                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('CUP')}>{comp.vocab.rerollEdition}</button>
+                <button className="chip" disabled={s.drawing || (!hasFreeReroll && lowBalance)} onClick={() => actions.reroll('BOTH')}>{comp.vocab.rerollBoth}</button>
               </div>
               <div className="text-[11px] text-ink-mute mt-2">Used · {session.rerollsUsed}</div>
             </div>
           )}
 
-          {teamStrength && (
-            <div className="bg-cream-soft border border-dashed border-ink/20 rounded-md p-3 text-xs text-ink-mute">
-              Team · ATK <strong className="text-ink">{teamStrength.attack.toFixed(0)}</strong> · DEF <strong className="text-ink">{teamStrength.defense.toFixed(0)}</strong>
-            </div>
-          )}
+          {/* Team ATK/DEF now lives at the top of the box score, where it sits
+              alongside the players it is derived from. */}
         </section>
 
         {/* CENTER — pitch */}
@@ -299,7 +350,7 @@ function DraftScreen() {
         {/* RIGHT — current draw + squad pool */}
         <section className="flex flex-col gap-4">
           {complete ? (
-            <BoxScorePanel lineup={s.lineup} isMemory={isMemory} formation={session.formation} />
+            <BoxScorePanel lineup={s.lineup} isMemory={isMemory} formation={session.formation} teamStrength={teamStrength} />
           ) : (
             <div className={`bg-white rounded-md shadow-card overflow-hidden ${s.drawing ? 'opacity-60 transition' : ''}`}>
               <div className="p-4 border-b border-black/5 flex items-start justify-between gap-3">
@@ -359,8 +410,10 @@ function DraftScreen() {
   );
 }
 
-function BoxScorePanel({ lineup, isMemory, formation }) {
+function BoxScorePanel({ lineup, isMemory, formation, teamStrength }) {
   const slots = FORMATIONS[formation];
+  const teamAtk = teamStrength ? Math.round(teamStrength.attack) : null;
+  const teamDef = teamStrength ? Math.round(teamStrength.defense) : null;
   return (
     <div className="bg-white rounded-md shadow-card p-4">
       <div className="flex items-center justify-between">
@@ -370,6 +423,34 @@ function BoxScorePanel({ lineup, isMemory, formation }) {
           <span className="flex items-center gap-1"><span className="inline-block w-3 h-1 bg-ink rounded-full" /> Defense</span>
         </div>
       </div>
+
+      {/* Team totals — the weighted indices the simulation actually prices
+          from, so they sit above the players rather than in a side note. */}
+      {teamAtk != null && (
+        <div className="mt-3 rounded-md bg-cream-soft px-3 py-2.5">
+          <div className="flex items-baseline justify-between">
+            <span className="label text-ink-mute">Team strength</span>
+            <span className="text-[10px] uppercase tracking-widest text-ink-mute">
+              {formation}{lineup.length < 11 ? ` · ${lineup.length}/11 picked` : ''}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-2">
+            {[
+              { label: 'Attack',  val: teamAtk, cls: 'att' },
+              { label: 'Defence', val: teamDef, cls: 'def' },
+            ].map(({ label, val, cls }) => (
+              <div key={label}>
+                <div className="flex items-baseline gap-2">
+                  <span className="display text-xl leading-none">{val}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-ink-mute">{label}</span>
+                </div>
+                <div className="bar bar-animate mt-1.5"><span className={cls} style={{ width: `${val}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="section-rule mb-2" />
       <ul className="divide-y divide-black/5">
         {slots.map(sl => {
@@ -392,8 +473,15 @@ function BoxScorePanel({ lineup, isMemory, formation }) {
               </div>
               {filled && !isMemory && (
                 <div className="grid grid-cols-2 gap-2 mt-1">
-                  <div className="bar"><span className="att" style={{ width: `${filled.player.attack}%`}} /></div>
-                  <div className="bar"><span className="def" style={{ width: `${filled.player.defense}%`}} /></div>
+                  {[
+                    { val: filled.player.attack,  cls: 'att' },
+                    { val: filled.player.defense, cls: 'def' },
+                  ].map(({ val, cls }, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] text-ink-mute w-5 shrink-0 text-right tabular-nums">{val}</span>
+                      <div className="bar flex-1"><span className={cls} style={{ width: `${val}%` }} /></div>
+                    </div>
+                  ))}
                 </div>
               )}
             </li>
@@ -582,6 +670,9 @@ function RunScreen() {
           ))}
         </div>
 
+        {/* Group standings — explicit confirmation of qualifying (or not) */}
+        <GroupTable rounds={result.rounds} revealIdx={s.revealIdx} />
+
         {/* Betting panel for the upcoming match — key forces full remount on round change */}
         {stillToPlay && (
           <RoundBettingPanel key={`rbp-${upcomingIdx}`} roundIdx={upcomingIdx} />
@@ -591,14 +682,89 @@ function RunScreen() {
         {s.eliminated && lastRevealed && (
           <div className="mt-6 bg-white run-card lost p-5">
             <div className="label text-ink-mute">Knocked out</div>
-            <div className="display text-2xl mt-1">Eliminated at {lastRevealed.label}</div>
+            <div className="display text-2xl mt-1">
+              {lastRevealed.groupDecider
+                ? 'Eliminated at the group stage'
+                : `Eliminated at ${lastRevealed.label}`}
+            </div>
             <div className="text-sm text-ink-mute mt-1">
-              The run ends here. Outright winnings are credited at the recap.
+              {lastRevealed.groupDecider
+                ? `${result.groupPoints} points from ${result.groupPlayed} matches — ${result.pointsNeeded} were needed to qualify.`
+                : 'The run ends here. Outright winnings are credited at the recap.'}
             </div>
           </div>
         )}
       </main>
       <Footer />
+    </div>
+  );
+}
+
+// Group standings — shown once all group matches are revealed, so progression
+// past the group stage is explicit rather than assumed.
+function GroupTable({ rounds, revealIdx }) {
+  const group = rounds.filter(r => !r.knockout);
+  if (!group.length) return null;
+  // Only show once every group match has actually been revealed.
+  const lastGroupIdx = group[group.length - 1].idx;
+  if (revealIdx <= lastGroupIdx) return null;
+
+  const decider = group[group.length - 1];
+  const played  = group.filter(r => r.outcome !== 'X');
+  const w = played.filter(r => r.outcome === 'W').length;
+  const d = played.filter(r => r.outcome === 'D').length;
+  const l = played.length - w - d;
+  const pts = w * 3 + d;
+  const need = decider.pointsNeeded ?? 0;
+  const through = decider.qualified !== false;
+  const gf = played.reduce((t, r) => t + (r.scored ?? 0), 0);
+  const ga = played.reduce((t, r) => t + (r.conceded ?? 0), 0);
+
+  const Cell = ({ children, wide }) => (
+    <div className={`${wide ? 'text-left' : 'text-center'} py-1.5`}>{children}</div>
+  );
+
+  return (
+    <div className={`mt-4 run-card ${through ? '' : 'lost'} p-4`}>
+      <div className="flex items-center justify-between">
+        <div className="label text-ink-mute">Group stage</div>
+        <div className={`label ${through ? 'text-winGreen' : 'text-accent'}`}>
+          {through ? '✓ Qualified' : '✗ Eliminated'}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[1fr_2rem_2rem_2rem_2rem_3rem_2.5rem] text-[10px] uppercase tracking-widest text-ink-mute mt-2 border-b border-black/10">
+        <Cell wide>Match</Cell><Cell>P</Cell><Cell>W</Cell><Cell>D</Cell><Cell>L</Cell><Cell>GF–GA</Cell><Cell>Pts</Cell>
+      </div>
+      <div className="grid grid-cols-[1fr_2rem_2rem_2rem_2rem_3rem_2.5rem] text-sm font-semibold border-b border-black/5">
+        <Cell wide>Your XI</Cell>
+        <Cell>{played.length}</Cell><Cell>{w}</Cell><Cell>{d}</Cell><Cell>{l}</Cell>
+        <Cell><span className="font-mono text-xs">{gf}–{ga}</span></Cell>
+        <Cell><span className={through ? 'text-winGreen' : 'text-accent'}>{pts}</span></Cell>
+      </div>
+
+      <ul className="mt-2 space-y-1">
+        {group.map((r, i) => (
+          <li key={i} className="flex items-center gap-2 text-xs">
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0
+              ${r.outcome === 'W' ? 'bg-winGreen' : r.outcome === 'D' ? 'bg-ink-mute' : 'bg-accent'}`}>
+              {r.outcome === 'W' ? 'W' : r.outcome === 'D' ? 'D' : 'L'}
+            </span>
+            <span className="text-ink-mute">{r.flag}</span>
+            <span className="font-semibold">{r.opponent}</span>
+            <span className="font-mono text-ink-mute ml-auto">{r.scored}–{r.conceded}</span>
+            <span className="text-ink-mute w-10 text-right">
+              {r.outcome === 'W' ? '+3' : r.outcome === 'D' ? '+1' : '+0'}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="text-[11px] text-ink-mute mt-3 pt-2 border-t border-black/5">
+        {through
+          ? `${pts} points — ${need} needed to reach the knockouts.`
+          : `${pts} points — ${need} needed. The run ends at the group stage.`}
+      </div>
     </div>
   );
 }
@@ -671,8 +837,9 @@ function BetSummary({ roundIdx }) {
 // ── Match reveal animation ─────────────────────────────────────────────
 function MatchRevealAnimation({ roundIdx, onComplete }) {
   const s = useStore();
+  const comp = useCompetition();
   const round = s.simResult?.rounds[roundIdx];
-  const opp = OPPONENTS[roundIdx];
+  const opp = comp.opponents[roundIdx];
 
   const [progress, setProgress]   = useState(0);   // 0–90 match clock
   const [finished, setFinished]   = useState(false);
@@ -744,11 +911,14 @@ function MatchRevealAnimation({ roundIdx, onComplete }) {
         {scoredNow}–{concededNow}
       </div>
 
-      {/* Team labels */}
-      <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest text-ink-mute px-2">
-        <span>Your XI</span>
-        <span>{opp.flag} {opp.opponent}</span>
-      </div>
+      {/* Team labels — the penalty grid carries its own header, so hide these
+          once the shootout starts rather than showing both. */}
+      {!penPhase && (
+        <div className="flex items-center justify-between text-xs font-bold uppercase tracking-widest text-ink-mute px-2">
+          <span>Your XI</span>
+          <span>{opp.flag} {opp.opponent}</span>
+        </div>
+      )}
 
       {/* Progress bar (match only) */}
       {!finished && (
@@ -786,27 +956,44 @@ function MatchRevealAnimation({ roundIdx, onComplete }) {
               const ok = pens.ourKicks[i];
               const tk = pens.oppKicks[i];
               if (!ok) return null;
+              // Divider goes immediately BEFORE the first sudden-death kick,
+              // so it separates the two phases rather than trailing the list.
+              const startsSD = ok.sd && !pens.ourKicks[i - 1]?.sd;
               return (
-                <div key={i} className="goal-event grid grid-cols-[1fr_3rem_1fr] items-center text-sm">
-                  <div className="flex items-center gap-1.5">
+                <React.Fragment key={i}>
+                {startsSD && (
+                  <div className="text-[9px] text-ink-mute uppercase tracking-widest py-1 text-center border-t border-black/10">
+                    — Sudden death —
+                  </div>
+                )}
+                <div className="goal-event grid grid-cols-[1fr_3rem_1fr] items-center text-sm">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     {ok.scored
                       ? <BallIcon size={13} className="shrink-0" />
                       : <span className="text-accent font-bold w-[13px] text-center shrink-0">✗</span>}
                     <span className={`font-semibold truncate text-xs ${ok.scored ? 'text-winGreen' : 'text-ink-mute'}`}>{ok.player.name}</span>
                   </div>
                   <div className="font-mono text-xs text-center text-ink-mute">{penRunning(i)}</div>
-                  <div className="flex items-center justify-end">
-                    {tk && (tk.scored
-                      ? <BallIcon size={13} />
-                      : <span className="text-accent font-bold text-xs">✗</span>)}
+                  {/* Opponent side mirrors ours: same icon, same colour coding.
+                      No player name — we don't model their squad — but the
+                      scored/missed state has to read just as clearly. */}
+                  <div className="flex items-center justify-end gap-1.5 min-w-0">
+                    {tk ? (<>
+                      <span className={`font-semibold truncate text-xs ${tk.scored ? 'text-winGreen' : 'text-ink-mute'}`}>
+                        {tk.scored ? 'Scored' : 'Missed'}
+                      </span>
+                      {tk.scored
+                        ? <BallIcon size={13} className="shrink-0" />
+                        : <span className="text-accent font-bold w-[13px] text-center shrink-0">✗</span>}
+                    </>) : (
+                      <span className="text-[11px] text-ink-mute italic">not needed</span>
+                    )}
                   </div>
                 </div>
+                </React.Fragment>
               );
             })}
           </div>
-          {pens.ourKicks.some(k => k.sd) && shownPens >= 5 && (
-            <div className="text-[9px] text-ink-mute uppercase tracking-widest mt-2 text-center">— Sudden death —</div>
-          )}
         </div>
       )}
 
@@ -830,6 +1017,7 @@ function MatchRevealAnimation({ roundIdx, onComplete }) {
 
 function RoundBettingPanel({ roundIdx }) {
   const s = useStore();
+  const comp = useCompetition();
   const priced = s.pricedMarkets;
   const [ouLineIdx, setOuLineIdx] = useState(2); // default index 2 → 2.5
   const [showAllScorers, setShowAllScorers] = useState(false);
@@ -860,7 +1048,7 @@ function RoundBettingPanel({ roundIdx }) {
   if (!priced || !liveOU) return null;
 
   const round1x2 = priced.general.ROUND_1X2[roundIdx];
-  const opp = OPPONENTS[roundIdx];
+  const opp = comp.opponents[roundIdx];
   const myAtk  = teamStrength ? Math.round(teamStrength.attack)  : null;
   const myDef  = teamStrength ? Math.round(teamStrength.defense) : null;
   const myOvr  = (myAtk != null && myDef != null) ? Math.round((myAtk + myDef) / 2) : null;
@@ -895,7 +1083,7 @@ function RoundBettingPanel({ roundIdx }) {
       <div className="px-5 py-4 border-b border-black/5">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <div className="label text-ink-mute">Up next · Match {roundIdx+1} of 7 · {opp.label}</div>
+            <div className="label text-ink-mute">Up next · Match {roundIdx+1} of {comp.opponents.length} · {opp.label}</div>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-2xl">{opp.flag}</span>
               <div className="display text-3xl">vs {opp.opponent}</div>
@@ -950,10 +1138,15 @@ function RoundBettingPanel({ roundIdx }) {
         <MatchRevealAnimation roundIdx={roundIdx} onComplete={handleAnimComplete} />
       ) : (
         <div className="p-5 space-y-5">
-          {/* ── 1X2 ── */}
+          {/* ── Match result (groups) / To qualify (knockouts) ── */}
           <div>
-            <div className="label text-ink-mute mb-2">Match result</div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="label text-ink-mute mb-2">{round1x2.title || 'Match result'}</div>
+            {round1x2.type === 'QUALIFY' && (
+              <div className="text-[11px] text-ink-mute -mt-1 mb-2">
+                Level after 90 minutes goes to penalties — a shootout win still qualifies.
+              </div>
+            )}
+            <div className={`grid gap-2 ${round1x2.selections.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
               {round1x2.selections.map(sel => {
                 const inCart = myCart.find(b => b.market === 'ROUND_1X2' && b.selection.id === sel.id);
                 return (
@@ -1133,8 +1326,15 @@ function MatchCard({ r, bets = [] }) {
           <div className="space-y-1">
             {pens.ourKicks.map((ok, i) => {
               const tk = pens.oppKicks[i];
+              const startsSD = ok.sd && !pens.ourKicks[i - 1]?.sd;
               return (
-                <div key={i} className="grid grid-cols-[1fr_3rem_1fr] items-center text-sm">
+                <React.Fragment key={i}>
+                {startsSD && (
+                  <div className="text-[9px] text-ink-mute uppercase tracking-widest py-1 text-center border-t border-black/10">
+                    — Sudden death —
+                  </div>
+                )}
+                <div className="grid grid-cols-[1fr_3rem_1fr] items-center text-sm">
                   <div className="flex items-center gap-1.5 min-w-0">
                     {ok.scored
                       ? <BallIcon size={13} className="shrink-0" />
@@ -1142,18 +1342,23 @@ function MatchCard({ r, bets = [] }) {
                     <span className={`font-semibold truncate text-xs ${ok.scored ? '' : 'text-ink-mute'}`}>{ok.player.name}</span>
                   </div>
                   <div className="font-mono text-xs text-center text-ink-mute">{penRunning(i)}</div>
-                  <div className="flex items-center justify-end">
-                    {tk && (tk.scored
-                      ? <BallIcon size={13} />
-                      : <span className="text-accent font-bold text-xs">✗</span>)}
+                  <div className="flex items-center justify-end gap-1.5 min-w-0">
+                    {tk ? (<>
+                      <span className={`font-semibold truncate text-xs ${tk.scored ? '' : 'text-ink-mute'}`}>
+                        {tk.scored ? 'Scored' : 'Missed'}
+                      </span>
+                      {tk.scored
+                        ? <BallIcon size={13} className="shrink-0" />
+                        : <span className="text-accent font-bold w-[13px] text-center shrink-0">✗</span>}
+                    </>) : (
+                      <span className="text-[11px] text-ink-mute italic">not needed</span>
+                    )}
                   </div>
                 </div>
+                </React.Fragment>
               );
             })}
           </div>
-          {pens.ourKicks.some(k => k.sd) && (
-            <div className="text-[9px] text-ink-mute uppercase tracking-widest mt-2 text-center">— Sudden death —</div>
-          )}
         </div>
       )}
       {lostKO && <div className="px-4 py-3 text-sm text-ink-mute italic">— eliminated —</div>}
@@ -1221,6 +1426,8 @@ function ResultsScreen() {
               <StatTile label="Conceded" value={result.totalConceded} />
             </div>
           </div>
+
+          <GroupTable rounds={result.rounds} revealIdx={result.rounds.length} />
 
           <div>
             <div className="label text-ink-mute mb-2 px-1">The run · {result.rounds.length} matches</div>

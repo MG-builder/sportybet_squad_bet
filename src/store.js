@@ -3,7 +3,7 @@
  * All amounts in integer kobo (₦1 = 100). Never floats.
  */
 (function () {
-  const { CONFIG, SQUAD_POOLS, FORMATIONS, OPPONENTS } = window.GAME_DATA;
+  const { CONFIG, FORMATIONS, getCompetition, DEFAULT_COMPETITION } = window.GAME_DATA;
   const { cryptoRandomSeedString, sha256Hex } = window.GAME_RNG;
   const { simulate } = window.GAME_SIM;
   const { priceAllMarkets, settleBet } = window.GAME_ODDS;
@@ -28,17 +28,23 @@
   }
   function newSeed() { return cryptoRandomSeedString(7); }
 
-  function drawTeamCup(seed, exclude = null) {
+  // The competition a session is playing. Falls back to the default so any
+  // call site that predates the registry still resolves to the World Cup.
+  function compOf(session) {
+    return getCompetition(session?.competition || DEFAULT_COMPETITION);
+  }
+
+  function drawTeamCup(pools, seed, exclude = null) {
     const hash = [...seed].reduce((a,c) => a + c.charCodeAt(0), 0);
-    const candidates = exclude ? SQUAD_POOLS.filter(p => p.id !== exclude) : SQUAD_POOLS;
+    const candidates = exclude ? pools.filter(p => p.id !== exclude) : pools;
     return candidates[hash % candidates.length];
   }
   // Pick a new draw that has at least one undrafted player.
-  function nextDrawablePool(seed, exclude, draftedIds) {
-    let pool = drawTeamCup(seed, exclude);
+  function nextDrawablePool(pools, seed, exclude, draftedIds) {
+    let pool = drawTeamCup(pools, seed, exclude);
     // Ensure at least one player remains undrafted; if not, drop the exclude
     if (pool.players.every(p => draftedIds.includes(p.id))) {
-      pool = SQUAD_POOLS.find(sp => sp.players.some(pl => !draftedIds.includes(pl.id))) || pool;
+      pool = pools.find(sp => sp.players.some(pl => !draftedIds.includes(pl.id))) || pool;
     }
     return pool;
   }
@@ -58,6 +64,7 @@
     // Session
     session: null,           // { id, seed, seedHash, status, teamPool, formation, mode, rerollsUsed }
     lineup: [],              // [{ slot, player }]
+    lastFormationDrop: null, // players released by a formation change, for the UI
     rolling: false,
     drawing: false,
     selectedSlotId: null,    // legacy slot-first targeting (kept for back-compat in tests)
@@ -93,26 +100,30 @@
   }
 
   // --- actions ---------------------------------------------------------------
-  async function rollNew() {
+  async function rollNew(competitionId) {
+    const comp = getCompetition(competitionId || DEFAULT_COMPETITION);
     store.set({ rolling: true });
     await new Promise(r => setTimeout(r, 650));
     const seed = newSeed();
     const seedHash = await sha256Hex(seed);
-    const pool = drawTeamCup(seed);
+    const pool = drawTeamCup(comp.squadPools, seed);
     store.set({
       rolling: false,
       session: {
         id: 'sess-' + Date.now(),
         seed, seedHash, status: 'ROLLED',
+        competition: comp.id,     // which competition this run is playing
         currentDraw: pool,        // CURRENT team being shown for next pick
         draftedPlayerIds: [],     // players already drafted (across teams)
         drawCount: 1,             // total draws made (incl. auto re-rolls)
         formation: '4-3-3',
         mode: 'CLASSIC',
         rerollsUsed: 0,
-        freeRerollsRemaining: 1, // 1 free re-roll per draw; resets on each new draw
+        freeRerollsRemaining: 1, // one free re-roll for the whole draft
+        benched: [],              // seated players a formation change couldn't fit
       },
       lineup: [],
+      lastFormationDrop: null,
       selectedSlotId: null,
       pricedMarkets: null,
       cart: [],
@@ -131,18 +142,19 @@
     store.set({ drawing: true });
     await new Promise(r => setTimeout(r, 420));
     const seed = newSeed();
-    const pool = nextDrawablePool(seed, s.session.currentDraw.id, s.session.draftedPlayerIds);
+    const pool = nextDrawablePool(compOf(s.session).squadPools, seed, s.session.currentDraw.id, s.session.draftedPlayerIds);
     store.set({
       drawing: false,
       session: { ...store.get().session, currentDraw: pool, drawCount: store.get().session.drawCount + 1 },
     });
   }
 
-  // Manual re-roll — first one per draw is FREE, additional ones cost ₦10.
-  // target: 'TEAM' | 'CUP' | 'BOTH'
-  //   TEAM → same World Cup year, different nation
-  //   CUP  → same nation, different World Cup year
-  //   BOTH → different nation AND different year
+  // Manual re-roll — the first of the draft is FREE, the rest cost ₦10.
+  // target: 'TEAM' | 'CUP' | 'BOTH', described in the competition's own terms
+  // ("year" for the World Cup, "season" for a club competition):
+  //   TEAM → same edition, different team
+  //   CUP  → same team, different edition
+  //   BOTH → different team AND different edition
   async function reroll(target) {
     const s = store.get();
     if (!s.session) return;
@@ -160,12 +172,16 @@
     store.set({ drawing: true });
     await new Promise(r => setTimeout(r, 480));
 
+    const comp = compOf(s.session);
+    const pools = comp.squadPools;
+    const editionOf = comp.editionOf;
+
     const seed = newSeed();
     const hash = [...seed].reduce((a,c) => a + c.charCodeAt(0), 0);
     const draftedIds = s.session.draftedPlayerIds;
-    const currentId   = s.session.currentDraw.id;
-    const currentTeam = s.session.currentDraw.team.id;
-    const currentYear = s.session.currentDraw.cup.year;
+    const currentId      = s.session.currentDraw.id;
+    const currentTeam    = s.session.currentDraw.team.id;
+    const currentEdition = editionOf(s.session.currentDraw);
 
     function pickFrom(candidates) {
       // Prefer pools with undrafted players; fall back to any if all exhausted.
@@ -173,20 +189,23 @@
       const choices = withPlayers.length ? withPlayers : candidates;
       return choices.length ? choices[hash % choices.length] : null;
     }
+    // If an axis has nowhere to go (a club with only one season in the pool),
+    // fall back to any different draw rather than leaving the user stuck.
+    const anyOther = () => nextDrawablePool(pools, seed, currentId, draftedIds);
 
     let pool;
     if (target === 'TEAM') {
-      // Same year, different nation
-      const candidates = SQUAD_POOLS.filter(p => p.cup.year === currentYear && p.id !== currentId);
-      pool = pickFrom(candidates) || nextDrawablePool(seed, currentId, draftedIds);
+      // Same edition, different team
+      pool = pickFrom(pools.filter(p =>
+        editionOf(p) === currentEdition && p.id !== currentId)) || anyOther();
     } else if (target === 'CUP') {
-      // Same nation, different year
-      const candidates = SQUAD_POOLS.filter(p => p.team.id === currentTeam && p.id !== currentId);
-      pool = pickFrom(candidates) || nextDrawablePool(seed, currentId, draftedIds);
+      // Same team, different edition
+      pool = pickFrom(pools.filter(p =>
+        p.team.id === currentTeam && p.id !== currentId)) || anyOther();
     } else {
-      // BOTH — different nation AND different year
-      const candidates = SQUAD_POOLS.filter(p => p.team.id !== currentTeam && p.cup.year !== currentYear && p.id !== currentId);
-      pool = pickFrom(candidates) || nextDrawablePool(seed, currentId, draftedIds);
+      // BOTH — different team AND different edition
+      pool = pickFrom(pools.filter(p =>
+        p.team.id !== currentTeam && editionOf(p) !== currentEdition && p.id !== currentId)) || anyOther();
     }
 
     store.set({
@@ -200,19 +219,85 @@
     });
   }
 
+  // Re-seat an existing lineup into a different formation's slots.
+  //
+  // `lineup` is stored in DRAFT order, not slot order, so pairing entry i with
+  // slot i (as this used to do) put whoever was picked first into goal and
+  // scattered everyone else — a keeper could end up on the wing. Instead we
+  // solve it as a bipartite matching: a player may only occupy a slot whose
+  // position is in their `positions` list, and we maximise how many keep a
+  // place. Candidates are ordered so staying put beats moving.
+  function reseatLineup(entries, newSlots) {
+    const rank = (entry, slot) =>
+      entry.slot.id === slot.id ? 2 : entry.slot.pos === slot.pos ? 1 : 0;
+
+    const eligible = newSlots.map(slot =>
+      entries
+        .map((e, i) => i)
+        .filter(i => entries[i].player.positions.includes(slot.pos))
+        .sort((a, b) => rank(entries[b], slot) - rank(entries[a], slot))
+    );
+
+    const slotToEntry = Array(newSlots.length).fill(-1);
+    const entryToSlot = Array(entries.length).fill(-1);
+
+    // Kuhn's augmenting-path matching (11x11 — size is irrelevant here).
+    function seat(si, seen) {
+      for (const ei of eligible[si]) {
+        if (seen.has(ei)) continue;
+        seen.add(ei);
+        if (entryToSlot[ei] === -1 || seat(entryToSlot[ei], seen)) {
+          slotToEntry[si] = ei;
+          entryToSlot[ei] = si;
+          return true;
+        }
+      }
+      return false;
+    }
+    // Seat the most constrained slots first so scarce specialists (GK) win.
+    const order = newSlots
+      .map((_, si) => si)
+      .sort((a, b) => eligible[a].length - eligible[b].length);
+    for (const si of order) seat(si, new Set());
+
+    const placed = [];
+    slotToEntry.forEach((ei, si) => {
+      if (ei === -1) return;
+      placed.push({ slot: newSlots[si], player: entries[ei].player, sourcePool: entries[ei].sourcePool });
+    });
+    const dropped = entries.filter((_, ei) => entryToSlot[ei] === -1);
+    return { placed, dropped };
+  }
+
   function setFormation(formation) {
     const s = store.get();
     if (!s.session) return;
-    // If lineup has any picks, re-snap them to the new formation's slots in order.
     const newSlots = FORMATIONS[formation];
-    const next = s.lineup.slice(0, 11).map((entry, i) => ({
-      slot: newSlots[i],
-      player: entry.player,
-      sourcePool: entry.sourcePool,
-    }));
+    if (!newSlots) return;
+
+    // Anyone already benched by an earlier switch is a candidate again, so
+    // going 4-3-3 → 4-4-2 → 4-3-3 puts the wingers straight back. Seated
+    // players come first so they keep their place where possible.
+    const benched = s.session.benched || [];
+    const { placed, dropped } = reseatLineup([...s.lineup.slice(0, 11), ...benched], newSlots);
+
+    // A player with no slot in this shape (a pure winger in 4-4-2) goes to the
+    // bench rather than being released — the change is reversible, so losing
+    // them for merely comparing formations would be punishing.
+    if (dropped.length) {
+      audit('FORMATION_BENCHED', 0, {
+        formation,
+        players: dropped.map(e => `${e.player.name} (${e.player.positions.join('/')})`),
+      });
+    }
+
     store.set({
-      session: { ...s.session, formation },
-      lineup: next,
+      session: { ...s.session, formation, benched: dropped },
+      lineup: placed,
+      lastFormationDrop: dropped.length
+        ? { formation, names: dropped.map(e => e.player.name) }
+        : null,
+      armedPlayerId: null,
       selectedSlotId: null,
       pricedMarkets: null,
     });
@@ -279,18 +364,16 @@
     if (s.lineup.length >= 11) return;
 
     const slots = FORMATIONS[s.session.formation];
-    let slotId = s.selectedSlotId;
     const filledIds = new Set(s.lineup.map(l => l.slot.id));
+    const fits = sl => !filledIds.has(sl.id) && player.positions.includes(sl.pos);
 
-    if (!slotId || filledIds.has(slotId)) {
-      // pick first empty slot the player fits, otherwise first empty
-      const slot = slots.find(sl => !filledIds.has(sl.id) && player.positions.includes(sl.pos))
-                || slots.find(sl => !filledIds.has(sl.id));
-      if (!slot) return;
-      slotId = slot.id;
-    }
-    const slot = slots.find(sl => sl.id === slotId);
-    if (!slot) return;
+    // Honour the pre-selected slot only if the player can actually play there,
+    // otherwise fall to the first empty slot they suit. There is deliberately
+    // no "any empty slot" fallback — seating someone out of position is what
+    // put a keeper on the wing.
+    const preferred = slots.find(sl => sl.id === s.selectedSlotId && fits(sl));
+    const slot = preferred || slots.find(fits);
+    if (!slot) return;                                  // no eligible slot open
 
     const entry = {
       slot,
@@ -336,10 +419,11 @@
     const s = store.get();
     store.set({
       lineup: [],
+      lastFormationDrop: null,
       pricedMarkets: null,
       armedPlayerId: null,
       selectedSlotId: FORMATIONS[s.session.formation][0].id,
-      session: { ...s.session, draftedPlayerIds: [] },
+      session: { ...s.session, draftedPlayerIds: [], benched: [] },
     });
   }
 
@@ -358,9 +442,28 @@
     store.set({ pricingInFlight: true });
     // Non-blocking-ish: defer to next tick so spinner can render
     setTimeout(() => {
-      const priced = priceAllMarkets(s.session.seed, s.lineup, s.session.formation, s.session.mode);
+      const priced = priceAllMarkets(s.session.seed, s.lineup, s.session.formation, s.session.mode, compOf(s.session));
       store.set({ pricedMarkets: priced, pricingInFlight: false });
     }, 30);
+  }
+
+  // Two selections from the same market instance are mutually exclusive — only
+  // one outcome can land, so holding both guarantees a loser. Picking one
+  // therefore REPLACES the other. Markets whose selections can all be true at
+  // once return null and stack freely:
+  //   GOALS_PLUS       cumulative thresholds — 1+ and 5+ can both win
+  //   ROUND_GOALSCORER several players can score in the same match
+  // Over/Under is keyed by line as well as round, so Over 2.5 + Under 3.5
+  // (backing exactly 3 goals) is still allowed — those aren't complements.
+  function exclusivityKey(marketKey, selection) {
+    switch (marketKey) {
+      case 'ROUND_1X2':   return `ROUND_1X2:${selection.round}`;
+      case 'ROUND_OU':    return `ROUND_OU:${selection.round}:${selection.value?.line}`;
+      case 'OU_CONCEDED': return `OU_CONCEDED:${selection.value?.line}`;
+      case 'WIN_CUP':     return 'WIN_CUP';
+      case 'WINS_TOTAL':  return 'WINS_TOTAL';
+      default:            return null;
+    }
   }
 
   function addToCart(marketKey, selection, extra = {}) {
@@ -369,10 +472,15 @@
       b.market === marketKey &&
       JSON.stringify(b.selection) === JSON.stringify(selection)
     );
-    if (existing) {
+    if (existing) {           // clicking the same pick again clears it
       removeFromCart(existing.id);
       return;
     }
+    const key = exclusivityKey(marketKey, selection);
+    const kept = key
+      ? s.cart.filter(b => exclusivityKey(b.market, b.selection) !== key)
+      : s.cart;
+
     const id = `bet-${marketKey}-${Date.now()}-${Math.floor(Math.random()*1000)}`;
     const item = {
       id,
@@ -383,7 +491,7 @@
       boostApplied: s.session.mode === 'MEMORY',
       ...extra,
     };
-    store.set(s => ({ cart: [...s.cart, item] }));
+    store.set({ cart: [...kept, item] });
   }
   function removeFromCart(betId) {
     store.set(s => ({ cart: s.cart.filter(b => b.id !== betId) }));
@@ -416,6 +524,7 @@
       seed: s.session.seed,
       lineup: s.lineup,
       formation: s.session.formation,
+      opponents: compOf(s.session).opponents,
     });
 
     // Settle outright statuses now; mark unpaid — paid at end of run.
@@ -477,9 +586,10 @@
     const nextSettled = [...s.settledBets, ...settled];
     const nextIdx = idx + 1;
     const justRevealed = s.simResult.rounds[idx];
-    // Knockout elimination if KO round (idx >= 3) and outcome wasn't a win
-    const isKO = idx >= 3;
-    const justEliminated = isKO && justRevealed.outcome !== 'W';
+    // The sim decides what ends a run — a knockout non-win, or failing to
+    // reach the group points threshold — and marks that round. Reading the
+    // flag keeps the rule in exactly one place.
+    const justEliminated = !!justRevealed.runEndsHere;
 
     store.set({
       cart: [],

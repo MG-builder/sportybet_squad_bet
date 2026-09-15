@@ -86,7 +86,10 @@
     id: `${name}-${shirtNo}`, name, shirtNo, positions, attack, defense, overall,
   });
 
-  const SQUAD_POOLS = [
+  // World Cup squad pool — national sides, one entry per team per tournament.
+  // Ratings are tournament-specific: a player is rated for the form and role
+  // he actually had that year, not his career peak.
+  const WC_SQUAD_POOLS = [
     {
       id: 'BRA-1970',
       team: { id: 'BRA', name: 'Brazil', flag: '🇧🇷' },
@@ -1971,17 +1974,587 @@
   };
 
   // Opponent strength per round (Attack, Defense), rises through the tournament.
-  // Rounds 1-3 group stage, 4 R16, 5 QF, 6 SF, 7 Final.
   // Opponents are real historical sides whose strength matches the difficulty tier.
   // Group opponents are beatable; the bracket then escalates to all-time great sides.
-  const OPPONENTS = [
-    { stage: 'GROUPS', label: 'Group',   atk: 60, def: 60, opponent: 'Saudi Arabia', flag: '🇸🇦', year: 1994 },
-    { stage: 'GROUPS', label: 'Group',   atk: 65, def: 65, opponent: 'USA',          flag: '🇺🇸', year: 2002 },
-    { stage: 'GROUPS', label: 'Group',   atk: 70, def: 70, opponent: 'Mexico',       flag: '🇲🇽', year: 1986 },
-    { stage: 'R16',    label: 'Last 16', atk: 75, def: 75, opponent: 'Sweden',       flag: '🇸🇪', year: 1994 },
-    { stage: 'QF',     label: 'QF',      atk: 79, def: 79, opponent: 'England',      flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', year: 1966 },
-    { stage: 'SF',     label: 'SF',      atk: 83, def: 83, opponent: 'Netherlands',  flag: '🇳🇱', year: 1974 },
-    { stage: 'FINAL',  label: 'Final',   atk: 87, def: 87, opponent: 'Brazil',       flag: '🇧🇷', year: 1970 },
+  //
+  // `knockout: true` means a non-win eliminates you. It is declared per stage
+  // rather than inferred from the round index, so a competition can put its
+  // knockouts anywhere (see COMPETITIONS below).
+  const WC_OPPONENTS = [
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 60, def: 60, opponent: 'Saudi Arabia', flag: '🇸🇦', year: 1994 },
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 65, def: 65, opponent: 'USA',          flag: '🇺🇸', year: 2002 },
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 70, def: 70, opponent: 'Mexico',       flag: '🇲🇽', year: 1986 },
+    { stage: 'R16',    label: 'Last 16', knockout: true,  atk: 75, def: 75, opponent: 'Sweden',       flag: '🇸🇪', year: 1994 },
+    { stage: 'QF',     label: 'QF',      knockout: true,  atk: 79, def: 79, opponent: 'England',      flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', year: 1966 },
+    { stage: 'SF',     label: 'SF',      knockout: true,  atk: 83, def: 83, opponent: 'Netherlands',  flag: '🇳🇱', year: 1974 },
+    { stage: 'FINAL',  label: 'Final',   knockout: true,  atk: 87, def: 87, opponent: 'Brazil',       flag: '🇧🇷', year: 1970 },
+  ];
+
+  // ── Champions League squad pool ────────────────────────────────────────
+  // European Cup / Champions League club sides. Deliberately clustered as
+  // 8 seasons x 3 clubs so BOTH re-roll axes always have somewhere to go:
+  // "re-roll club" needs siblings in the same season, "re-roll season" needs
+  // the same club in another year. Eight of the twelve clubs recur.
+  //
+  // Same rating philosophy as the World Cup pool: a player is rated for the
+  // season he actually had. Matthäus at 38 is a Bayern sweeper, not the 1990
+  // Ballon d'Or winner; Kluivert in 1994 is an 18-year-old prospect.
+  const UCL_SQUAD_POOLS = [
+    // ── 1966–67 ──────────────────────────────────────────────────────────
+    {
+      id: 'CEL-1967',
+      team: { id: 'CEL', name: 'Celtic', flag: '🏴󠁧󠁢󠁳󠁣󠁴󠁿' },
+      cup:  { id: 'UCL1967', year: 1967, host: '1966–67' },
+      players: [
+        p('Simpson',      1,  ['GK'],            28, 80, 80),
+        p('Craig',        2,  ['RB'],            58, 76, 76),
+        p('Gemmell',      3,  ['LB'],            72, 76, 80),
+        p('Murdoch',      4,  ['CM','AM'],       78, 70, 83),
+        p('McNeill',      5,  ['CB'],            50, 86, 85),
+        p('Clark',        6,  ['CB','DM'],       46, 80, 78),
+        p('Johnstone',    7,  ['RW'],            88, 44, 87),
+        p('Wallace',      8,  ['ST'],            78, 44, 77),
+        p('Chalmers',     9,  ['ST'],            76, 42, 75),
+        p('Auld',         10, ['CM','AM'],       74, 62, 77),
+        p('Lennox',       11, ['LW','ST'],       82, 44, 80),
+        p('Fallon',       12, ['GK'],            26, 72, 72),
+        p('Cushley',      13, ['CB'],            44, 76, 74),
+        p("O'Neill",      14, ['LB'],            52, 74, 72),
+        p('Gallagher',    15, ['AM','CM'],       70, 58, 70),
+      ],
+    },
+    {
+      id: 'INT-1967',
+      team: { id: 'INT', name: 'Inter', flag: '🇮🇹' },
+      cup:  { id: 'UCL1967', year: 1967, host: '1966–67' },
+      players: [
+        p('Sarti',        1,  ['GK'],            28, 84, 84),
+        p('Burgnich',     2,  ['RB','CB'],       52, 86, 85),
+        p('Facchetti',    3,  ['LB'],            74, 84, 88),
+        p('Bedin',        4,  ['CM','DM'],       62, 74, 73),
+        p('Guarneri',     5,  ['CB'],            44, 84, 82),
+        p('Picchi',       6,  ['CB'],            46, 86, 84),
+        p('Jair',         7,  ['RW'],            84, 46, 83),
+        p('Suárez L.',    8,  ['CM','AM'],       84, 64, 89),
+        p('Mazzola',      9,  ['ST','AM'],       88, 50, 89),
+        p('Domenghini',   10, ['RW','ST'],       82, 48, 81),
+        p('Corso',        11, ['LW','AM'],       84, 48, 84),
+        p('Cappellini',   12, ['LW','ST'],       76, 44, 75),
+        p('Cella',        13, ['CB'],            42, 78, 76),
+        p('Bicicli',      14, ['ST'],            74, 42, 73),
+        p('Malatrasi',    15, ['CB','DM'],       46, 78, 76),
+      ],
+    },
+    {
+      id: 'RMA-1967',
+      team: { id: 'RMA', name: 'Real Madrid', flag: '🇪🇸' },
+      cup:  { id: 'UCL1967', year: 1967, host: '1966–67' },
+      players: [
+        p('Betancort',    1,  ['GK'],            28, 80, 80),
+        p('De Felipe',    2,  ['CB'],            44, 78, 76),
+        p('Sanchís M.',   3,  ['RB','CB'],       56, 80, 79),
+        p('Pirri',        4,  ['CM','CB'],       76, 76, 85),
+        p('Zoco',         5,  ['DM','CB'],       56, 80, 80),
+        p('Serena',       6,  ['CM'],            70, 64, 72),
+        p('Amancio',      7,  ['RW','AM'],       88, 50, 88),
+        p('Grosso',       8,  ['ST','AM'],       78, 50, 78),
+        p('Velázquez',    9,  ['CM','AM'],       74, 62, 76),
+        p('Gento',        10, ['LW'],            86, 46, 88),
+        p('Muller L.',    11, ['CM'],            72, 68, 74),
+        p('Araquistáin',  12, ['GK'],            26, 74, 74),
+        p('Pérez M.',     13, ['CB'],            42, 76, 74),
+        p('Ansola',       14, ['ST'],            76, 42, 75),
+        p('Miera',        15, ['LB'],            58, 76, 75),
+      ],
+    },
+
+    // ── 1972–73 ──────────────────────────────────────────────────────────
+    {
+      id: 'AJA-1973',
+      team: { id: 'AJA', name: 'Ajax', flag: '🇳🇱' },
+      cup:  { id: 'UCL1973', year: 1973, host: '1972–73' },
+      players: [
+        p('Stuy',         1,  ['GK'],            28, 80, 80),
+        p('Suurbier',     2,  ['RB'],            70, 78, 80),
+        p('Blankenburg',  3,  ['CB'],            46, 80, 79),
+        p('Hulshoff',     4,  ['CB'],            52, 84, 84),
+        p('Krol',         5,  ['LB','CB'],       70, 84, 86),
+        p('Neeskens',     6,  ['CM','DM'],       82, 78, 88),
+        p('Rep',          7,  ['RW','ST'],       84, 44, 83),
+        p('Haan',         8,  ['CM','AM'],       78, 66, 80),
+        p('Cruyff',       9,  ['ST','AM','LW'],  95, 56, 96),
+        p('Mühren G.',    10, ['CM','AM'],       78, 62, 79),
+        p('Keizer',       11, ['LW'],            84, 46, 84),
+        p('Schilcher',    12, ['CB'],            42, 76, 74),
+        p('Swart',        13, ['RW'],            76, 44, 75),
+        p('Suurendonk',   14, ['AM','CM'],       72, 58, 71),
+        p('Van Duivenbode', 15, ['LB'],          58, 76, 74),
+      ],
+    },
+    {
+      id: 'BAY-1973',
+      team: { id: 'BAY', name: 'Bayern', flag: '🇩🇪' },
+      cup:  { id: 'UCL1973', year: 1973, host: '1972–73' },
+      players: [
+        p('Maier',        1,  ['GK'],            30, 86, 86),
+        p('Hansen J.',    2,  ['RB'],            58, 76, 76),
+        p('Breitner',     3,  ['LB'],            76, 80, 85),
+        p('Schwarzenbeck',4,  ['CB'],            42, 84, 82),
+        p('Beckenbauer',  5,  ['CB','DM'],       72, 92, 93),
+        p('Roth',         6,  ['CM'],            74, 70, 76),
+        p('Torstensson',  7,  ['AM','CM'],       76, 60, 76),
+        p('Zobel',        8,  ['CM','DM'],       62, 74, 72),
+        p('Müller G.',    9,  ['ST'],            94, 38, 93),
+        p('Hoeneß U.',    10, ['RW','ST'],       84, 54, 85),
+        p('Dürnberger',   11, ['CM','LW'],       72, 62, 73),
+        p('Horsmann',     12, ['CB'],            40, 76, 74),
+        p('Kapellmann',   13, ['CM'],            68, 70, 72),
+        p('Krauthausen',  14, ['LW','RW'],       72, 46, 71),
+        p('Rieger',       15, ['ST'],            72, 42, 71),
+      ],
+    },
+    {
+      id: 'JUV-1973',
+      team: { id: 'JUV', name: 'Juventus', flag: '🇮🇹' },
+      cup:  { id: 'UCL1973', year: 1973, host: '1972–73' },
+      players: [
+        p('Zoff',         1,  ['GK'],            28, 88, 88),
+        p('Spinosi',      2,  ['CB','RB'],       50, 82, 81),
+        p('Marchetti',    3,  ['CB'],            44, 80, 78),
+        p('Furino',       4,  ['DM','CM'],       58, 78, 76),
+        p('Morini',       5,  ['CB'],            44, 80, 78),
+        p('Salvadore',    6,  ['CB'],            46, 80, 79),
+        p('Altafini',     7,  ['ST'],            82, 42, 82),
+        p('Causio',       8,  ['RW','AM'],       82, 50, 82),
+        p('Anastasi',     9,  ['ST'],            84, 42, 83),
+        p('Capello',      10, ['CM','AM'],       74, 68, 78),
+        p('Bettega',      11, ['ST','LW'],       82, 46, 82),
+        p('Cuccureddu',   12, ['LB','CB'],       56, 78, 76),
+        p('Longobucco',   13, ['CM'],            66, 68, 68),
+        p('Haller',       14, ['AM','CM'],       78, 58, 78),
+        p('Gentile',      15, ['RB','CB'],       50, 84, 82),
+      ],
+    },
+
+    // ── 1976–77 ──────────────────────────────────────────────────────────
+    {
+      id: 'LIV-1977',
+      team: { id: 'LIV', name: 'Liverpool', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+      cup:  { id: 'UCL1977', year: 1977, host: '1976–77' },
+      players: [
+        p('Clemence',     1,  ['GK'],            28, 86, 86),
+        p('Neal',         2,  ['RB'],            62, 80, 80),
+        p('Jones J.',     3,  ['LB'],            54, 78, 76),
+        p('Smith T.',     4,  ['CB'],            46, 82, 80),
+        p('Hughes E.',    5,  ['CB','LB'],       56, 82, 82),
+        p('Thompson P.',  6,  ['CB'],            46, 84, 82),
+        p('Keegan',       7,  ['ST','AM'],       88, 52, 89),
+        p('Case',         8,  ['CM','RW'],       76, 64, 76),
+        p('Heighway',     9,  ['LW','RW'],       78, 48, 78),
+        p('McDermott',    10, ['CM','AM'],       76, 62, 77),
+        p('Callaghan',    11, ['CM'],            70, 70, 74),
+        p('Kennedy R.',   12, ['CM','LW'],       76, 68, 79),
+        p('Fairclough',   13, ['ST'],            76, 40, 74),
+        p('Johnson D.',   14, ['ST'],            74, 42, 73),
+        p('Hansen A.',    15, ['CB'],            52, 82, 80),
+      ],
+    },
+    {
+      id: 'BAY-1977',
+      team: { id: 'BAY', name: 'Bayern', flag: '🇩🇪' },
+      cup:  { id: 'UCL1977', year: 1977, host: '1976–77' },
+      players: [
+        p('Maier',        1,  ['GK'],            30, 86, 86),
+        p('Hansen J.',    2,  ['RB'],            56, 74, 74),
+        p('Horsmann',     3,  ['LB','CB'],       44, 76, 74),
+        p('Schwarzenbeck',4,  ['CB'],            42, 82, 80),
+        p('Beckenbauer',  5,  ['CB','DM'],       70, 90, 91),
+        p('Roth',         6,  ['CM'],            72, 68, 74),
+        p('Rummenigge',   7,  ['RW','ST'],       84, 46, 84),
+        p('Kapellmann',   8,  ['CM'],            68, 70, 71),
+        p('Müller G.',    9,  ['ST'],            90, 38, 89),
+        p('Torstensson',  10, ['AM','CM'],       74, 58, 74),
+        p('Dürnberger',   11, ['CM','LW'],       70, 62, 71),
+        p('Weiss',        12, ['GK'],            26, 72, 72),
+        p('Andersson',    13, ['CB'],            42, 76, 74),
+        p('Niedermayer',  14, ['CM'],            64, 66, 66),
+        p('Kunkel',       15, ['LB'],            52, 72, 70),
+      ],
+    },
+    {
+      id: 'BMG-1977',
+      team: { id: 'BMG', name: "M'gladbach", flag: '🇩🇪' },
+      cup:  { id: 'UCL1977', year: 1977, host: '1976–77' },
+      players: [
+        p('Kneib',        1,  ['GK'],            28, 80, 80),
+        p('Vogts',        2,  ['RB','CB'],       52, 86, 85),
+        p('Klinkhammer',  3,  ['LB'],            54, 76, 74),
+        p('Wittkamp',     4,  ['CB'],            44, 80, 78),
+        p('Schäffer',     5,  ['CB'],            42, 78, 76),
+        p('Stielike',     6,  ['DM','CB'],       62, 84, 84),
+        p('Simonsen',     7,  ['RW','AM'],       88, 48, 88),
+        p('Wohlers',      8,  ['ST'],            74, 42, 73),
+        p('Heynckes',     9,  ['ST'],            84, 42, 83),
+        p('Bonhof',       10, ['CM','DM'],       78, 74, 82),
+        p("Del'Haye",     11, ['LW','ST'],       74, 46, 73),
+        p('Kulik',        12, ['CM','AM'],       70, 62, 70),
+        p('Hannes',       13, ['CB'],            42, 76, 74),
+        p('Danner',       14, ['CM'],            68, 64, 68),
+        p('Ringels',      15, ['LB','LW'],       58, 70, 68),
+      ],
+    },
+
+    // ── 1989–90 ──────────────────────────────────────────────────────────
+    {
+      id: 'MIL-1990',
+      team: { id: 'MIL', name: 'Milan', flag: '🇮🇹' },
+      cup:  { id: 'UCL1990', year: 1990, host: '1989–90' },
+      players: [
+        p('Galli G.',     1,  ['GK'],            28, 82, 82),
+        p('Tassotti',     2,  ['RB'],            56, 82, 81),
+        p('Maldini',      3,  ['LB','CB'],       66, 88, 89),
+        p('Costacurta',   4,  ['CB'],            44, 84, 83),
+        p('Baresi',       5,  ['CB'],            56, 92, 93),
+        p('Rijkaard',     6,  ['DM','CM'],       80, 86, 90),
+        p('Donadoni',     7,  ['RW','AM'],       82, 60, 84),
+        p('Ancelotti',    8,  ['CM'],            70, 74, 76),
+        p('Van Basten',   9,  ['ST'],            94, 42, 94),
+        p('Gullit',       10, ['AM','ST'],       90, 62, 92),
+        p('Evani',        11, ['LW','CM'],       74, 62, 74),
+        p('Colombo',      12, ['CM','DM'],       64, 74, 70),
+        p('Galli F.',     13, ['CB'],            44, 80, 78),
+        p('Massaro',      14, ['ST'],            78, 46, 78),
+        p('Fusi',         15, ['CM','DM'],       64, 74, 70),
+      ],
+    },
+    {
+      id: 'RMA-1990',
+      team: { id: 'RMA', name: 'Real Madrid', flag: '🇪🇸' },
+      cup:  { id: 'UCL1990', year: 1990, host: '1989–90' },
+      players: [
+        p('Buyo',         1,  ['GK'],            28, 82, 82),
+        p('Chendo',       2,  ['RB'],            56, 80, 79),
+        p('Gordillo',     3,  ['LB','LW'],       70, 76, 79),
+        p('Sanchís',      4,  ['CB'],            48, 84, 83),
+        p('Tendillo',     5,  ['CB'],            42, 78, 76),
+        p('Gallego',      6,  ['DM','CM'],       60, 78, 76),
+        p('Michel',       7,  ['RW','AM'],       84, 56, 85),
+        p('Martín Vázquez',8, ['AM','CM'],       80, 62, 81),
+        p('Butragueño',   9,  ['ST','AM'],       88, 46, 88),
+        p('Hugo Sánchez', 10, ['ST'],            90, 40, 89),
+        p('Villarroya',   11, ['LB'],            54, 76, 74),
+        p('Schuster',     12, ['CM','AM'],       82, 66, 84),
+        p('Solana',       13, ['CB','DM'],       44, 78, 76),
+        p('Llorente P.',  14, ['CM'],            66, 72, 70),
+        p('Losada',       15, ['ST','RW'],       74, 44, 73),
+      ],
+    },
+    {
+      id: 'BAY-1990',
+      team: { id: 'BAY', name: 'Bayern', flag: '🇩🇪' },
+      cup:  { id: 'UCL1990', year: 1990, host: '1989–90' },
+      players: [
+        p('Aumann',       1,  ['GK'],            28, 84, 84),
+        p('Grahammer',    2,  ['RB','CB'],       48, 78, 76),
+        p('Pflügler',     3,  ['LB'],            54, 78, 76),
+        p('Augenthaler',  4,  ['CB'],            56, 86, 86),
+        p('Kohler',       5,  ['CB'],            44, 88, 86),
+        p('Reuter',       6,  ['RB','CM'],       70, 74, 78),
+        p('Strunz',       7,  ['CM','RB'],       70, 70, 73),
+        p('Thon',         8,  ['AM','CM'],       80, 66, 82),
+        p('Wohlfarth',    9,  ['ST'],            82, 40, 81),
+        p('Dorfner',      10, ['CM','AM'],       70, 66, 70),
+        p('Kögl',         11, ['RW','LW'],       78, 52, 77),
+        p('Schwabl',      12, ['CM','LB'],       66, 72, 68),
+        p('Flick',        13, ['DM','CM'],       60, 76, 72),
+        p('Ekström',      14, ['ST'],            76, 42, 75),
+        p('Nachtweih',    15, ['CB','DM'],       44, 78, 76),
+      ],
+    },
+
+    // ── 1993–94 ──────────────────────────────────────────────────────────
+    {
+      id: 'MIL-1994',
+      team: { id: 'MIL', name: 'Milan', flag: '🇮🇹' },
+      cup:  { id: 'UCL1994', year: 1994, host: '1993–94' },
+      players: [
+        p('Rossi S.',     1,  ['GK'],            28, 84, 84),
+        p('Tassotti',     2,  ['RB'],            54, 82, 80),
+        p('Maldini',      3,  ['LB','CB'],       68, 90, 91),
+        p('Costacurta',   4,  ['CB'],            44, 86, 85),
+        p('Baresi',       5,  ['CB'],            54, 92, 92),
+        p('Albertini',    6,  ['CM','DM'],       74, 78, 82),
+        p('Donadoni',     7,  ['RW','AM'],       80, 60, 82),
+        p('Desailly',     8,  ['DM','CB'],       66, 88, 88),
+        p('Massaro',      9,  ['ST'],            80, 44, 80),
+        p('Savićević',    10, ['AM','RW'],       88, 48, 88),
+        p('Boban',        11, ['AM','CM'],       82, 58, 83),
+        p('Panucci',      12, ['RB','CB'],       60, 80, 79),
+        p('Papin',        13, ['ST'],            82, 42, 82),
+        p('Simone',       14, ['ST','AM'],       76, 50, 76),
+        p('Eranio',       15, ['CM','RB'],       70, 70, 72),
+      ],
+    },
+    {
+      id: 'BAR-1994',
+      team: { id: 'BAR', name: 'Barcelona', flag: '🇪🇸' },
+      cup:  { id: 'UCL1994', year: 1994, host: '1993–94' },
+      players: [
+        p('Zubizarreta',  1,  ['GK'],            28, 86, 86),
+        p('Ferrer',       2,  ['RB'],            58, 80, 79),
+        p('Sergi',        3,  ['LB'],            64, 78, 78),
+        p('Koeman',       4,  ['CB','DM'],       78, 82, 87),
+        p('Nadal',        5,  ['CB','DM'],       48, 82, 80),
+        p('Guardiola',    6,  ['DM','CM'],       70, 78, 82),
+        p('Bakero',       7,  ['AM','CM'],       78, 62, 79),
+        p('Amor',         8,  ['CM'],            70, 72, 74),
+        p('Romário',      9,  ['ST'],            94, 36, 93),
+        p('Stoichkov',    10, ['LW','ST'],       90, 44, 90),
+        p('Laudrup M.',   11, ['AM','ST'],       88, 50, 89),
+        p('Beguiristain', 12, ['LW','ST'],       78, 46, 77),
+        p('Eusebio S.',   13, ['CM','DM'],       66, 74, 70),
+        p('Goikoetxea',   14, ['RW','AM'],       74, 54, 73),
+        p('Busquets C.',  15, ['GK'],            26, 74, 74),
+      ],
+    },
+    {
+      id: 'AJA-1994',
+      team: { id: 'AJA', name: 'Ajax', flag: '🇳🇱' },
+      cup:  { id: 'UCL1994', year: 1994, host: '1993–94' },
+      players: [
+        p('Van der Sar',  1,  ['GK'],            28, 84, 84),
+        p('Reiziger',     2,  ['RB'],            62, 80, 79),
+        p('Blind',        3,  ['LB','CB'],       60, 82, 81),
+        p('De Boer F.',   4,  ['CB','LB'],       62, 84, 84),
+        p('Rijkaard',     5,  ['DM','CB'],       74, 86, 88),
+        p('Davids',       6,  ['DM','CM'],       74, 82, 83),
+        p('Seedorf',      7,  ['CM','AM'],       80, 68, 82),
+        p('Litmanen',     8,  ['AM','ST'],       86, 50, 86),
+        p('Kluivert',     9,  ['ST'],            76, 40, 75),
+        p('De Boer R.',   10, ['RW','AM'],       76, 58, 76),
+        p('Overmars',     11, ['LW','RW'],       86, 46, 85),
+        p('Bogarde',      12, ['CB','DM'],       48, 80, 78),
+        p('Kanu',         13, ['ST','RW'],       76, 42, 75),
+        p('Wooter',       14, ['RW','LW'],       74, 46, 73),
+        p('Silooy',       15, ['RB','CB'],       54, 76, 74),
+      ],
+    },
+
+    // ── 1998–99 ──────────────────────────────────────────────────────────
+    {
+      id: 'MUN-1999',
+      team: { id: 'MUN', name: 'Man United', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+      cup:  { id: 'UCL1999', year: 1999, host: '1998–99' },
+      players: [
+        p('Schmeichel',   1,  ['GK'],            30, 90, 90),
+        p('Neville G.',   2,  ['RB'],            58, 80, 79),
+        p('Irwin',        3,  ['LB'],            64, 82, 82),
+        p('Keane',        4,  ['CM','DM'],       80, 84, 90),
+        p('Stam',         5,  ['CB'],            46, 90, 89),
+        p('Johnsen',      6,  ['CB'],            44, 82, 80),
+        p('Beckham',      7,  ['RW','CM'],       86, 62, 88),
+        p('Scholes',      8,  ['CM','AM'],       84, 68, 86),
+        p('Cole',         9,  ['ST'],            86, 40, 85),
+        p('Yorke',        10, ['ST'],            88, 42, 87),
+        p('Giggs',        11, ['LW'],            88, 50, 88),
+        p('Blomqvist',    12, ['LW'],            74, 52, 73),
+        p('Berg',         13, ['CB'],            42, 80, 78),
+        p('Butt',         14, ['CM','DM'],       70, 76, 76),
+        p('Solskjær',     15, ['ST'],            84, 40, 83),
+      ],
+    },
+    {
+      id: 'BAY-1999',
+      team: { id: 'BAY', name: 'Bayern', flag: '🇩🇪' },
+      cup:  { id: 'UCL1999', year: 1999, host: '1998–99' },
+      players: [
+        p('Kahn',         1,  ['GK'],            30, 90, 90),
+        p('Babbel',       2,  ['RB','CB'],       58, 82, 82),
+        p('Lizarazu',     3,  ['LB'],            70, 82, 84),
+        p('Linke',        4,  ['CB'],            42, 82, 80),
+        p('Matthäus',     5,  ['DM','CB'],       74, 80, 85),
+        p('Kuffour',      6,  ['CB'],            44, 82, 80),
+        p('Jeremies',     7,  ['DM','CM'],       62, 82, 80),
+        p('Effenberg',    8,  ['CM','AM'],       82, 74, 86),
+        p('Jancker',      9,  ['ST'],            80, 46, 79),
+        p('Basler',       10, ['AM','RW'],       84, 50, 84),
+        p('Elber',        11, ['ST'],            86, 40, 85),
+        p('Tarnat',       12, ['LB','CM'],       66, 78, 77),
+        p('Zickler',      13, ['ST','LW'],       78, 42, 77),
+        p('Fink',         14, ['CM','DM'],       66, 74, 72),
+        p('Salihamidžić', 15, ['RW','CM'],       74, 62, 74),
+      ],
+    },
+    {
+      id: 'JUV-1999',
+      team: { id: 'JUV', name: 'Juventus', flag: '🇮🇹' },
+      cup:  { id: 'UCL1999', year: 1999, host: '1998–99' },
+      players: [
+        p('Peruzzi',      1,  ['GK'],            28, 86, 86),
+        p('Torricelli',   2,  ['RB','CB'],       52, 80, 78),
+        p('Pessotto',     3,  ['LB','RB'],       60, 80, 79),
+        p('Montero',      4,  ['CB'],            44, 88, 86),
+        p('Ferrara',      5,  ['CB'],            44, 84, 83),
+        p('Davids',       6,  ['DM','CM'],       74, 84, 85),
+        p('Conte',        7,  ['CM'],            74, 76, 78),
+        p('Zidane',       8,  ['AM','CM'],       92, 62, 93),
+        p('Inzaghi',      9,  ['ST'],            88, 38, 87),
+        p('Del Piero',    10, ['ST','AM'],       90, 44, 90),
+        p('Di Livio',     11, ['CM','RB'],       66, 76, 73),
+        p('Iuliano',      12, ['CB'],            42, 82, 80),
+        p('Deschamps',    13, ['DM','CM'],       62, 82, 81),
+        p('Amoruso',      14, ['ST'],            78, 42, 77),
+        p('Tacchinardi',  15, ['CM','DM'],       66, 76, 73),
+      ],
+    },
+
+    // ── 2004–05 ──────────────────────────────────────────────────────────
+    {
+      id: 'LIV-2005',
+      team: { id: 'LIV', name: 'Liverpool', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+      cup:  { id: 'UCL2005', year: 2005, host: '2004–05' },
+      players: [
+        p('Dudek',        1,  ['GK'],            28, 82, 82),
+        p('Finnan',       2,  ['RB'],            58, 80, 79),
+        p('Traoré',       3,  ['LB','CB'],       50, 74, 72),
+        p('Carragher',    4,  ['CB'],            42, 86, 85),
+        p('Hyypiä',       5,  ['CB'],            48, 84, 83),
+        p('Gerrard',      6,  ['CM','AM'],       88, 76, 91),
+        p('Alonso',       7,  ['CM','DM'],       76, 80, 84),
+        p('Hamann',       8,  ['DM','CM'],       62, 82, 79),
+        p('Baroš',        9,  ['ST'],            80, 40, 79),
+        p('García L.',    10, ['AM','RW'],       82, 46, 81),
+        p('Riise',        11, ['LB','LW'],       74, 74, 78),
+        p('Cissé',        12, ['ST'],            80, 40, 79),
+        p('Kewell',       13, ['LW','AM'],       78, 48, 77),
+        p('Biscan',       14, ['DM','CB'],       56, 76, 73),
+        p('Josemi',       15, ['RB','CB'],       50, 74, 71),
+      ],
+    },
+    {
+      id: 'MIL-2005',
+      team: { id: 'MIL', name: 'Milan', flag: '🇮🇹' },
+      cup:  { id: 'UCL2005', year: 2005, host: '2004–05' },
+      players: [
+        p('Dida',         1,  ['GK'],            28, 86, 86),
+        p('Cafu',         2,  ['RB'],            74, 82, 86),
+        p('Maldini',      3,  ['CB','LB'],       56, 86, 87),
+        p('Nesta',        4,  ['CB'],            44, 90, 89),
+        p('Stam',         5,  ['CB'],            44, 84, 83),
+        p('Gattuso',      6,  ['DM','CM'],       60, 84, 82),
+        p('Pirlo',        7,  ['DM','CM'],       82, 72, 88),
+        p('Seedorf',      8,  ['CM','AM'],       82, 68, 85),
+        p('Shevchenko',   9,  ['ST'],            92, 40, 91),
+        p('Kaká',         10, ['AM','ST'],       90, 52, 90),
+        p('Crespo',       11, ['ST'],            86, 40, 85),
+        p('Serginho',     12, ['LB','LW'],       70, 74, 76),
+        p('Costacurta',   13, ['CB'],            42, 80, 78),
+        p('Rui Costa',    14, ['AM','CM'],       82, 54, 82),
+        p('Ambrosini',    15, ['DM','CM'],       62, 80, 78),
+      ],
+    },
+    {
+      id: 'CHE-2005',
+      team: { id: 'CHE', name: 'Chelsea', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+      cup:  { id: 'UCL2005', year: 2005, host: '2004–05' },
+      players: [
+        p('Čech',         1,  ['GK'],            28, 90, 90),
+        p('Ferreira',     2,  ['RB'],            56, 80, 78),
+        p('Gallas',       3,  ['CB','LB'],       50, 84, 83),
+        p('Terry',        4,  ['CB'],            52, 88, 88),
+        p('Carvalho R.',  5,  ['CB'],            46, 86, 85),
+        p('Makélélé',     6,  ['DM'],            54, 86, 84),
+        p('Lampard',      7,  ['CM','AM'],       86, 72, 88),
+        p('Tiago',        8,  ['CM','DM'],       70, 74, 74),
+        p('Drogba',       9,  ['ST'],            86, 48, 86),
+        p('Robben',       10, ['RW','LW'],       88, 46, 87),
+        p('Duff',         11, ['LW','RW'],       84, 48, 83),
+        p('Bridge',       12, ['LB'],            62, 78, 76),
+        p('Cole J.',      13, ['AM','LW'],       82, 52, 81),
+        p('Gudjohnsen',   14, ['ST','AM'],       80, 48, 80),
+        p('Geremi',       15, ['CM','RB'],       66, 74, 72),
+      ],
+    },
+
+    // ── 2010–11 ──────────────────────────────────────────────────────────
+    {
+      id: 'BAR-2011',
+      team: { id: 'BAR', name: 'Barcelona', flag: '🇪🇸' },
+      cup:  { id: 'UCL2011', year: 2011, host: '2010–11' },
+      players: [
+        p('Valdés',       1,  ['GK'],            28, 84, 84),
+        p('Alves',        2,  ['RB'],            82, 78, 87),
+        p('Abidal',       3,  ['LB','CB'],       56, 84, 83),
+        p('Piqué',        4,  ['CB'],            56, 88, 88),
+        p('Puyol',        5,  ['CB'],            48, 88, 87),
+        p('Busquets',     6,  ['DM'],            58, 86, 85),
+        p('Xavi',         7,  ['CM'],            84, 70, 92),
+        p('Iniesta',      8,  ['CM','AM'],       88, 66, 91),
+        p('Villa',        9,  ['ST','LW'],       88, 42, 88),
+        p('Messi',        10, ['ST','AM','RW'],  97, 44, 97),
+        p('Pedro',        11, ['RW','ST'],       84, 48, 84),
+        p('Mascherano',   12, ['DM','CB'],       52, 84, 82),
+        p('Keita',        13, ['CM'],            72, 74, 76),
+        p('Adriano',      14, ['LB','RB'],       68, 76, 75),
+        p('Afellay',      15, ['RW','AM'],       76, 50, 75),
+      ],
+    },
+    {
+      id: 'MUN-2011',
+      team: { id: 'MUN', name: 'Man United', flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+      cup:  { id: 'UCL2011', year: 2011, host: '2010–11' },
+      players: [
+        p('Van der Sar',  1,  ['GK'],            28, 86, 86),
+        p('Rafael',       2,  ['RB'],            66, 76, 76),
+        p('Evra',         3,  ['LB'],            70, 82, 83),
+        p('Ferdinand',    4,  ['CB'],            48, 86, 85),
+        p('Vidić',        5,  ['CB'],            50, 88, 88),
+        p('Carrick',      6,  ['CM','DM'],       68, 78, 80),
+        p('Valencia',     7,  ['RW'],            82, 58, 82),
+        p('Fletcher',     8,  ['CM','DM'],       66, 78, 76),
+        p('Rooney',       9,  ['ST','AM'],       90, 54, 89),
+        p('Hernández',    10, ['ST'],            84, 38, 83),
+        p('Giggs',        11, ['LW','CM'],       78, 56, 82),
+        p('Nani',         12, ['RW','LW'],       84, 48, 84),
+        p('Park',         13, ['LW','CM'],       74, 68, 78),
+        p('Smalling',     14, ['CB','RB'],       44, 80, 78),
+        p('Scholes',      15, ['CM','AM'],       78, 62, 80),
+      ],
+    },
+    {
+      id: 'RMA-2011',
+      team: { id: 'RMA', name: 'Real Madrid', flag: '🇪🇸' },
+      cup:  { id: 'UCL2011', year: 2011, host: '2010–11' },
+      players: [
+        p('Casillas',     1,  ['GK'],            30, 90, 90),
+        p('Ramos',        2,  ['CB','RB'],       60, 86, 87),
+        p('Marcelo',      3,  ['LB'],            78, 72, 82),
+        p('Pepe',         4,  ['CB','DM'],       48, 86, 85),
+        p('Carvalho R.',  5,  ['CB'],            44, 82, 81),
+        p('Alonso X.',    6,  ['DM','CM'],       74, 82, 86),
+        p('Di María',     7,  ['RW','AM'],       84, 56, 84),
+        p('Khedira',      8,  ['DM','CM'],       66, 80, 79),
+        p('Benzema',      9,  ['ST'],            84, 44, 84),
+        p('Özil',         10, ['AM','CM'],       86, 50, 86),
+        p('Ronaldo C.',   11, ['LW','ST'],       95, 44, 95),
+        p('Higuaín',      12, ['ST'],            84, 40, 83),
+        p('Kaká',         13, ['AM','CM'],       80, 48, 80),
+        p('Arbeloa',      14, ['RB','LB'],       56, 80, 78),
+        p('Lass',         15, ['DM','CM'],       60, 78, 76),
+      ],
+    },
+  ];
+
+  // Champions League opponent ladder. Same escalation shape as the World Cup:
+  // beatable group sides, then four genuine European champions.
+  const UCL_OPPONENTS = [
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 68, def: 68, opponent: 'Porto',        flag: '🇵🇹', year: 2004 },
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 72, def: 72, opponent: 'Dortmund',     flag: '🇩🇪', year: 1997 },
+    { stage: 'GROUPS', label: 'Group',   knockout: false, atk: 75, def: 75, opponent: "Nott'm Forest",flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', year: 1980 },
+    { stage: 'R16',    label: 'Last 16', knockout: true,  atk: 79, def: 79, opponent: 'Marseille',    flag: '🇫🇷', year: 1993 },
+    { stage: 'QF',     label: 'QF',      knockout: true,  atk: 82, def: 82, opponent: 'Inter',        flag: '🇮🇹', year: 2010 },
+    { stage: 'SF',     label: 'SF',      knockout: true,  atk: 85, def: 85, opponent: 'Bayern',       flag: '🇩🇪', year: 2013 },
+    { stage: 'FINAL',  label: 'Final',   knockout: true,  atk: 88, def: 88, opponent: 'Real Madrid',  flag: '🇪🇸', year: 2017 },
   ];
 
   // Pre-made markets (shown right after squad build).
@@ -2028,22 +2601,80 @@
   ];
 
   // Config tunables — mirror /server/config.ts from the spec
+  // Run length is no longer global — it is each competition's opponents.length.
   const CONFIG = {
-    REROLL_COST_KOBO: 1000,        // ₦10
-    MAX_REROLLS: 2,
+    REROLL_COST_KOBO: 1000,        // ₦10, charged only after the free re-roll
     MEMORY_BOOST: 1.15,
     MARGIN: 0.08,
     MC_SAMPLES: 250,               // lower than spec for browser responsiveness
     MIN_STAKE_KOBO: 1000,          // ₦10
-    ROUNDS: 7,
     STARTING_BALANCE_KOBO: 200000, // ₦2,000 demo balance
   };
 
+  // ── Competition registry ───────────────────────────────────────────────
+  // Each competition owns its own squad pool, opponent ladder and vocabulary.
+  // Nothing downstream should reach for a global pool or ladder — it reads
+  // whichever competition the session selected. Adding a new competition is
+  // then a data exercise, not a code change.
+  //
+  //   squadPools  draftable squads
+  //   opponents   the ladder, in order; `knockout` decides elimination
+  //   editionOf   reads the "edition" axis off a squad (year / season)
+  //   vocab       UI labels, so the same components serve every competition
+  const COMPETITIONS = {
+    WORLD_CUP: {
+      id: 'WORLD_CUP',
+      name: 'World Cup',
+      short: 'WC',
+      icon: '🏆',
+      blurb: 'Draft an XI from 81 national squads, 1930–2022.',
+      squadPools: WC_SQUAD_POOLS,
+      opponents: WC_OPPONENTS,
+      groupPointsToQualify: 4,   // 3 group games; a win + a draw advances
+      editionOf: (pool) => pool.cup.year,
+      editionLabelOf: (pool) => String(pool.cup.year),
+      vocab: {
+        team: 'Nation',
+        edition: 'Year',
+        rerollTeam: 'Re-roll team',
+        rerollEdition: 'Re-roll year',
+        rerollBoth: 'Re-roll both',
+      },
+    },
+
+    CHAMPIONS_LEAGUE: {
+      id: 'CHAMPIONS_LEAGUE',
+      name: 'Champions League',
+      short: 'UCL',
+      icon: '⭐',
+      blurb: 'Draft an XI from 24 great European club sides, 1967–2011.',
+      squadPools: UCL_SQUAD_POOLS,
+      opponents: UCL_OPPONENTS,
+      groupPointsToQualify: 4,   // 3 group games; a win + a draw advances
+      editionOf: (pool) => pool.cup.year,
+      editionLabelOf: (pool) => pool.cup.host,   // '2010–11'
+      vocab: {
+        team: 'Club',
+        edition: 'Season',
+        rerollTeam: 'Re-roll club',
+        rerollEdition: 'Re-roll season',
+        rerollBoth: 'Re-roll both',
+      },
+    },
+  };
+
+  const DEFAULT_COMPETITION = 'WORLD_CUP';
+
+  function getCompetition(id) {
+    return COMPETITIONS[id] || COMPETITIONS[DEFAULT_COMPETITION];
+  }
+
   window.GAME_DATA = {
-    SQUAD_POOLS,
+    COMPETITIONS,
+    DEFAULT_COMPETITION,
+    getCompetition,
     FORMATIONS,
     FORMATION_MODS,
-    OPPONENTS,
     PRE_MARKETS,
     GEN_MARKETS,
     POS_GROUPS,

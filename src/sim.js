@@ -5,7 +5,7 @@
  */
 (function () {
   const { rngFromSeed, poisson, weightedChoice, randInt, hashStringSeed } = window.GAME_RNG;
-  const { FORMATION_MODS, OPPONENTS, groupOf, CONFIG } = window.GAME_DATA;
+  const { FORMATION_MODS, groupOf, CONFIG, getCompetition, DEFAULT_COMPETITION } = window.GAME_DATA;
 
   // Derive team Attack & Defense indices from the 11-man lineup + formation.
   function deriveTeamStrength(lineup, formation) {
@@ -64,19 +64,26 @@
 
     const ourKicks = [];
     const oppKicks = [];
+    let ourG = 0, oppG = 0;
 
-    // 5 kicks each (with early-finish if result is mathematically decided)
+    // Best of 5, kicks taken ALTERNATELY. A real shootout stops the moment the
+    // result is mathematically decided, so the losing side may take fewer kicks
+    // — check after every single kick, not after each pair.
+    const decided = () =>
+      ourG > oppG + (5 - oppKicks.length) || oppG > ourG + (5 - ourKicks.length);
+
     for (let i = 0; i < 5; i++) {
-      ourKicks.push({ player: takers[i].player, scored: rng() < pFor(takers[i].player.attack) });
-      oppKicks.push({ scored: rng() < pOpp });
-      const ourG = ourKicks.filter(k => k.scored).length;
-      const oppG = oppKicks.filter(k => k.scored).length;
-      const left = 4 - i;
-      if (ourG > oppG + left || oppG > ourG + left) break;
-    }
+      const taker = takers[i % takers.length].player;
+      const scored = rng() < pFor(taker.attack);
+      ourKicks.push({ player: taker, scored });
+      if (scored) ourG++;
+      if (decided()) break;
 
-    let ourG = ourKicks.filter(k => k.scored).length;
-    let oppG = oppKicks.filter(k => k.scored).length;
+      const oppScored = rng() < pOpp;
+      oppKicks.push({ scored: oppScored });
+      if (oppScored) oppG++;
+      if (decided()) break;
+    }
 
     // Sudden death until someone wins
     let sd = 0;
@@ -132,6 +139,7 @@
       label: opp.label,
       opponent: opp.opponent,
       flag: opp.flag,
+      knockout: !!opp.knockout,
       scored, conceded, outcome, scorers, opponentScorers,
     };
   }
@@ -139,8 +147,10 @@
   // Main simulate(): deterministic from seed.
   // input: { seed:string, lineup:[{slot, player}], formation:string,
   //         opponents?:[] }
-  function simulate({ seed, lineup, formation, opponents }) {
-    const opps = opponents || OPPONENTS;
+  function simulate({ seed, lineup, formation, opponents, competition }) {
+    const comp = getCompetition(competition || DEFAULT_COMPETITION);
+    const opps = opponents || comp.opponents;
+    const needPoints = comp.groupPointsToQualify ?? 0;
     const rng = rngFromSeed(seed);
     const team = deriveTeamStrength(lineup, formation);
 
@@ -148,21 +158,26 @@
     let eliminated = false;
     let wins = 0, draws = 0, losses = 0;
     let totalScored = 0, totalConceded = 0;
+    let groupPoints = 0, groupPlayed = 0;
+    let qualified = null;               // null until the group stage is resolved
     const perPlayer = {}; // playerId -> { goals }
 
     for (let i = 0; i < opps.length; i++) {
       const opp = opps[i];
-      const knockout = i >= 3; // R16 onward
+      const knockout = !!opp.knockout;
       if (eliminated) {
         rounds.push({
           idx: i, stage: opp.stage, label: opp.label, opponent: opp.opponent, flag: opp.flag,
+          knockout,
           scored: null, conceded: null, outcome: 'X', scorers: [], opponentScorers: [],
         });
         continue;
       }
       const r = simulateRound(i, team, opp, lineup, rng);
 
-      // Knockout draws go to penalties — outcome resolves to W or L
+      // Knockout draws go to penalties — outcome resolves to W or L.
+      // outcome90 keeps the regulation result for anything that needs it.
+      r.outcome90 = r.outcome;
       if (knockout && r.outcome === 'D') {
         r.penalties = simulatePenalties(lineup, opp, rng);
         r.outcome = r.penalties.won ? 'W' : 'L';
@@ -178,8 +193,28 @@
         if (!perPlayer[s.playerId]) perPlayer[s.playerId] = { name: s.playerName, goals: 0 };
         perPlayer[s.playerId].goals += 1;
       }
-      // Knockout: loss (including penalty loss) eliminates
-      if (knockout && r.outcome !== 'W') eliminated = true;
+
+      if (!knockout) {
+        groupPlayed++;
+        groupPoints += r.outcome === 'W' ? 3 : r.outcome === 'D' ? 1 : 0;
+        r.groupPoints = groupPoints;
+        // Last group match? Qualification is decided here.
+        const lastGroupGame = (i + 1 >= opps.length) || opps[i + 1].knockout;
+        if (lastGroupGame) {
+          qualified = groupPoints >= needPoints;
+          r.groupDecider = true;
+          r.qualified = qualified;
+          r.pointsNeeded = needPoints;
+          if (!qualified) eliminated = true;
+        }
+      } else if (r.outcome !== 'W') {
+        // Knockout: any non-win (including a penalty loss) ends the run
+        eliminated = true;
+      }
+
+      // The round that actually ended the run — store.js reads this rather
+      // than re-deriving the elimination rule.
+      if (eliminated) r.runEndsHere = true;
     }
 
     const wonCup = !eliminated && rounds[rounds.length - 1].outcome === 'W' &&
@@ -192,6 +227,7 @@
       rounds,
       wins, draws, losses,
       totalScored, totalConceded,
+      groupPoints, groupPlayed, qualified, pointsNeeded: needPoints,
       wonCup,
       perPlayer,
     };
