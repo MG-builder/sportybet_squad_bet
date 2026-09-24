@@ -55,6 +55,12 @@ const CheckIcon = ({size=14}) => (
     <path d="M5 12 L10 17 L19 7" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
+const BoltIcon = ({size=18}) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
+    <path d="M13 2 L5 13.5 H11 L10 22 L19 10 H13 Z"
+          fill="#e8533a" stroke="#101010" strokeWidth="1.5" strokeLinejoin="round"/>
+  </svg>
+);
 const Dice = ({size=18}) => (
   <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
     <rect x="3" y="3" width="18" height="18" rx="4" fill="#fff" stroke="#101010" strokeWidth="1.5"/>
@@ -123,62 +129,91 @@ function IntroScreen() {
         rightSlot={<><BalancePill /><ThemePill /></>}
       />
       <main className="px-6 lg:px-10 max-w-[820px] mx-auto pt-10 pb-16 grid grid-cols-1 gap-8">
-        <section className="bg-white rounded-md shadow-card p-8 text-center">
-          <div className="label text-ink-mute">How it works</div>
-          <h2 className="display text-4xl mt-2">Draft 11. From any era.</h2>
-          <p className="text-ink-soft mt-3 leading-relaxed">
-            Roll the dice. Get a {comp.vocab.team.toLowerCase()} and a {comp.vocab.edition.toLowerCase()}. Pick <strong>one</strong> player
-            from that squad — then the dice rolls again. Repeat until you have an XI from 11 different
-            historical sides. Don't like a draw? Your first re-roll is free — after that they cost ₦10.
-          </p>
+        <section className="bg-white rounded-md shadow-card p-8">
+          {/* Headline covers both routes — the page used to describe only
+              drafting, which left the generated route unexplained. */}
+          <div className="text-center">
+            <div className="label text-ink-mute">How it works</div>
+            <h2 className="display text-4xl mt-2">An XI from any era.</h2>
+            <p className="text-ink-soft mt-3 leading-relaxed max-w-[54ch] mx-auto">
+              Eleven players, each from a different historical side — then seven matches to bet on,
+              priced from the team you end up with.
+            </p>
+          </div>
 
-          {/* Competition picker */}
+          {/* Competition is a setting that applies to both routes, so it is a
+              toggle rather than a card competing with the two actions. */}
           <div className="mt-7">
             <div className="label text-ink-mute mb-2">Competition</div>
-            <div className={`grid gap-3 ${comps.length > 2 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              {comps.map(c => {
-                const active = c.id === compId;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => setCompId(c.id)}
-                    disabled={s.rolling}
-                    className={`rounded-xl border-2 p-4 text-left transition
-                      ${active ? 'border-accent bg-accent/5' : 'border-ink/15 hover:border-ink/40'}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{c.icon}</span>
-                      <span className="font-bold">{c.name}</span>
-                    </div>
-                    <div className="text-[11px] text-ink-mute mt-1 leading-snug">{c.blurb}</div>
-                    <div className="text-[10px] text-ink-mute uppercase tracking-widest mt-2">
-                      {c.squadPools.length} squads · {c.opponents.length} matches
-                    </div>
-                  </button>
-                );
-              })}
+            <div className={`grid gap-2 ${comps.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              {comps.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setCompId(c.id)}
+                  disabled={s.rolling}
+                  className={`chip flex items-center justify-center gap-2 ${c.id === compId ? 'active' : ''}`}
+                >
+                  <span>{c.icon}</span>{c.name}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] text-ink-mute mt-2 text-center">
+              {comp.blurb} · {comp.opponents.length} matches
             </div>
           </div>
 
-          <div className="mt-8 flex flex-col items-center gap-4">
-            <div className={`w-28 h-28 rounded-2xl bg-cream-soft border-2 border-ink flex items-center justify-center ${s.rolling ? 'roll-spin' : ''}`}>
-              <Dice size={56} />
-            </div>
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <button className="cta" onClick={() => actions.rollNew(compId)} disabled={s.rolling}>
-                {s.rolling ? 'Rolling…' : `Roll & start drafting`} <Dice size={20} />
+          {/* The two ways to play, as peers. Each carries its own time cost
+              and its own ₦10 line, because the two re-rolls are different
+              things at the same price. */}
+          <div className="label text-ink-mute mt-7 mb-2">Choose how to build your XI</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              {
+                key: 'draft',
+                icon: <Dice size={26} />,
+                title: 'Draft your own XI',
+                body: <>Roll a side, take <strong>one</strong> player, repeat. You choose every pick.</>,
+                effort: '11 picks · about 2 minutes',
+                cost: `First re-roll free, then ${nairaFromKobo(CONFIG.REROLL_COST_KOBO)} per draw`,
+                onClick: () => actions.rollNew(compId),
+              },
+              {
+                key: 'quick',
+                icon: <BoltIcon size={26} />,
+                title: 'Pick my team for me',
+                body: <>We build an XI from eleven sides. You take what you are given.</>,
+                effort: 'Instant · no picks',
+                cost: `Re-roll the whole team for ${nairaFromKobo(CONFIG.REROLL_COST_KOBO)}`,
+                onClick: () => actions.quickPlay(compId),
+              },
+            ].map(p => (
+              <button
+                key={p.key}
+                onClick={p.onClick}
+                disabled={s.rolling}
+                className="group rounded-xl border-2 border-ink/15 hover:border-accent hover:bg-accent/5
+                           p-5 text-left transition disabled:opacity-60 disabled:hover:border-ink/15
+                           disabled:hover:bg-transparent flex flex-col"
+              >
+                <div className={`w-12 h-12 rounded-xl bg-cream-soft border-2 border-ink
+                                 flex items-center justify-center ${s.rolling ? 'roll-spin' : ''}`}>
+                  {p.icon}
+                </div>
+                <div className="display text-xl mt-3">{p.title}</div>
+                <div className="text-sm text-ink-soft mt-1 leading-snug">{p.body}</div>
+                <div className="mt-3 pt-3 border-t border-black/10 text-[11px] text-ink-mute leading-relaxed">
+                  <div className="font-semibold text-ink-soft">{p.effort}</div>
+                  <div>{p.cost}</div>
+                </div>
+                <div className="label text-accent mt-3 group-hover:translate-x-0.5 transition">
+                  {s.rolling ? 'Starting…' : 'Start →'}
+                </div>
               </button>
-              <button className="pill" onClick={() => actions.quickPlay(compId)} disabled={s.rolling}>
-                Pick my team for me
-              </button>
-            </div>
-            <div className="text-[11px] text-ink-mute max-w-[46ch] leading-snug">
-              Drafting takes eleven picks. Short on time? We'll build an XI for you —
-              re-roll the whole team for {nairaFromKobo(CONFIG.REROLL_COST_KOBO)} until you like it.
-            </div>
-            <div className="text-xs text-ink-mute uppercase tracking-widest">
-              Starting balance · {nairaFromKobo(s.balanceKobo)}
-            </div>
+            ))}
+          </div>
+
+          <div className="text-xs text-ink-mute uppercase tracking-widest mt-6 text-center">
+            Starting balance · {nairaFromKobo(s.balanceKobo)}
           </div>
         </section>
       </main>
@@ -243,24 +278,55 @@ function DraftScreen() {
         {/* LEFT — controls */}
         <section className="flex flex-col gap-4">
           <div className="bg-white rounded-md shadow-card p-4">
-            <div className="label text-ink-mute">Formation</div>
+            <div className="flex items-baseline justify-between">
+              <div className="label text-ink-mute">Formation</div>
+              {session.quickPlay && <div className="label text-ink-mute">Locked</div>}
+            </div>
+            {/* Quick play is meant to be zero-decision: the shape comes with
+                the team, the same way the players do. */}
             <div className="grid grid-cols-3 gap-2 mt-2">
               {Object.keys(FORMATIONS).map(f => (
-                <button key={f} className={`chip ${session.formation === f ? 'active' : ''}`} onClick={() => actions.setFormation(f)}>{f}</button>
+                <button
+                  key={f}
+                  className={`chip ${session.formation === f ? 'active' : ''}`}
+                  disabled={session.quickPlay}
+                  title={session.quickPlay ? 'Set for you along with the team' : undefined}
+                  onClick={() => actions.setFormation(f)}
+                >{f}</button>
               ))}
             </div>
-            <div className="label text-ink-mute mt-4">Mode · Difficulty</div>
+            {session.quickPlay && (
+              <div className="text-[11px] text-ink-mute mt-2">
+                Picked for you with the team. Draft your own XI to choose the shape.
+              </div>
+            )}
+            <div className="flex items-baseline justify-between mt-4">
+              <div className="label text-ink-mute">Mode · Difficulty</div>
+              {session.quickPlay && <div className="label text-ink-mute">Locked</div>}
+            </div>
+            {/* From memory is about drafting blind, so it has nothing to hide
+                once the XI was picked for you. The mode therefore cannot change
+                at all in quick play — Classic is locked in too, so the "Locked"
+                heading above is honest rather than half-true. */}
             <div className="grid grid-cols-2 gap-2 mt-2">
-              <button className={`chip ${session.mode === 'CLASSIC' ? 'active' : ''}`} onClick={() => actions.setMode('CLASSIC')}>Classic</button>
-              {/* From memory is about drafting blind — it has nothing to hide
-                  once the XI was picked for you, so it's off in quick play. */}
+              <button
+                className={`chip ${session.mode === 'CLASSIC' ? 'active' : ''}`}
+                onClick={() => actions.setMode('CLASSIC')}
+                disabled={session.quickPlay}
+                title={session.quickPlay ? 'Fixed when the team is picked for you' : undefined}
+              >Classic</button>
               <button
                 className={`chip ${session.mode === 'MEMORY' ? 'active' : ''}`}
                 onClick={() => actions.setMode('MEMORY')}
                 disabled={session.quickPlay}
-                title={session.quickPlay ? 'Not available when the team was picked for you' : undefined}
+                title={session.quickPlay ? 'From memory means drafting blind — there is nothing to hide here' : undefined}
               >From memory</button>
             </div>
+            {session.quickPlay && (
+              <div className="text-[11px] text-ink-mute mt-2 leading-snug">
+                From memory means drafting blind — it only applies when you pick the players yourself.
+              </div>
+            )}
             {isMemory && (
               <div className="text-[11px] text-ink-mute mt-2 leading-snug">
                 Ratings hidden during draft. Odds boosted ×{CONFIG.MEMORY_BOOST.toFixed(2)} at lock.
@@ -480,7 +546,7 @@ function BoxScorePanel({ lineup, isMemory, formation, teamStrength }) {
             ].map(({ label, val, cls }) => (
               <div key={label}>
                 <div className="flex items-baseline gap-2">
-                  <span className="display text-xl leading-none">{val}</span>
+                  <span className="display text-2xl leading-none">{val}</span>
                   <span className="text-[10px] uppercase tracking-widest text-ink-mute">{label}</span>
                 </div>
                 <div className="bar bar-animate mt-1.5"><span className={cls} style={{ width: `${val}%` }} /></div>
@@ -491,38 +557,48 @@ function BoxScorePanel({ lineup, isMemory, formation, teamStrength }) {
       )}
 
       <div className="section-rule mb-2" />
+      {/* Column headings, on the same grid as the rows — an unlabelled figure
+          at the right edge was reading as detached rather than as a column. */}
+      <div className="grid grid-cols-[1.75rem_1fr_2.5rem] gap-x-2.5 text-[10px] uppercase tracking-widest text-ink-mute pb-1.5 border-b border-black/5">
+        <span />
+        <span>Player</span>
+        <span className="text-right">Ovr</span>
+      </div>
       <ul className="divide-y divide-black/5">
         {slots.map(sl => {
           const filled = lineup.find(l => l.slot.id === sl.id);
           return (
-            <li key={sl.id} className="py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="label text-ink-mute w-8">{sl.pos}</span>
-                  {filled ? (
-                    <span className="font-semibold truncate flex items-center gap-1">
-                      {filled.sourcePool && <span className="text-base">{filled.sourcePool.team.flag}</span>}
-                      {isMemory ? '— — — — —' : filled.player.name}
-                    </span>
-                  ) : <span className="text-ink-mute">—</span>}
-                </div>
+            // Overall sits in its own column spanning the whole row, so it
+            // anchors the player rather than floating at the end of the name.
+            <li key={sl.id} className="py-2 grid grid-cols-[1.75rem_1fr_2.5rem] items-center gap-x-2.5">
+              <span className="label text-ink-mute">{sl.pos}</span>
+
+              <div className="min-w-0">
+                {filled ? (
+                  <span className="font-semibold truncate flex items-center gap-1.5">
+                    {filled.sourcePool && <span className="text-base leading-none">{filled.sourcePool.team.flag}</span>}
+                    {isMemory ? '— — — — —' : filled.player.name}
+                  </span>
+                ) : <span className="text-ink-mute">—</span>}
+
                 {filled && !isMemory && (
-                  <span className="text-xs font-mono text-ink-mute">{filled.player.overall}</span>
+                  <div className="grid grid-cols-2 gap-2 mt-1.5">
+                    {[
+                      { val: filled.player.attack,  cls: 'att' },
+                      { val: filled.player.defense, cls: 'def' },
+                    ].map(({ val, cls }, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] text-ink-mute w-5 shrink-0 text-right tabular-nums">{val}</span>
+                        <div className="bar flex-1"><span className={cls} style={{ width: `${val}%` }} /></div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {filled && !isMemory && (
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  {[
-                    { val: filled.player.attack,  cls: 'att' },
-                    { val: filled.player.defense, cls: 'def' },
-                  ].map(({ val, cls }, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <span className="font-mono text-[10px] text-ink-mute w-5 shrink-0 text-right tabular-nums">{val}</span>
-                      <div className="bar flex-1"><span className={cls} style={{ width: `${val}%` }} /></div>
-                    </div>
-                  ))}
-                </div>
-              )}
+
+              <span className="display text-lg leading-none text-right tabular-nums">
+                {filled && !isMemory ? filled.player.overall : ''}
+              </span>
             </li>
           );
         })}
@@ -687,6 +763,8 @@ function RunScreen() {
   const upcomingIdx = s.revealIdx;
   const stillToPlay = !s.eliminated && upcomingIdx < result.rounds.length;
   const lastRevealed = revealed.length > 0 ? revealed[revealed.length - 1] : null;
+  // Index of the final group match — where the standings table belongs.
+  const lastGroupIdx = result.rounds.reduce((last, r, i) => r.knockout ? last : i, -1);
 
   return (
     <div>
@@ -702,15 +780,19 @@ function RunScreen() {
         {/* Progress dots */}
         <ProgressDots rounds={result.rounds} revealIdx={s.revealIdx} eliminated={s.eliminated} />
 
-        {/* Already-revealed match cards */}
+        {/* Revealed matches, with the group standings pinned where the group
+            stage ends — it belongs between the last group game and the first
+            knockout, and stays there as later rounds pile up below. */}
         <div className="space-y-3 mt-4">
           {revealed.map((r, idx) => (
-            <MatchCard key={idx} r={r} bets={s.settledBets.filter(b => b.kind === 'round' && b.selection?.round === idx)} />
+            <React.Fragment key={idx}>
+              <MatchCard r={r} bets={s.settledBets.filter(b => b.kind === 'round' && b.selection?.round === idx)} />
+              {idx === lastGroupIdx && (
+                <GroupTable rounds={result.rounds} revealIdx={s.revealIdx} />
+              )}
+            </React.Fragment>
           ))}
         </div>
-
-        {/* Group standings — explicit confirmation of qualifying (or not) */}
-        <GroupTable rounds={result.rounds} revealIdx={s.revealIdx} />
 
         {/* Betting panel for the upcoming match — key forces full remount on round change */}
         {stillToPlay && (
@@ -1442,6 +1524,8 @@ function ResultsScreen() {
   const totalPayout = bets.reduce((t,b)=>t+(b.payoutKobo||0),0);
   const net = totalPayout - totalStake;
   const losses = result.losses + result.rounds.filter(r=>r.outcome==='X').length;
+  // Standings sit after the last group match in the recap too.
+  const recapLastGroupIdx = result.rounds.reduce((last, r, i) => r.knockout ? last : i, -1);
   return (
     <div>
       <TopBar
@@ -1466,13 +1550,16 @@ function ResultsScreen() {
             </div>
           </div>
 
-          <GroupTable rounds={result.rounds} revealIdx={result.rounds.length} />
-
           <div>
             <div className="label text-ink-mute mb-2 px-1">The run · {result.rounds.length} matches</div>
             <div className="space-y-2">
               {result.rounds.map((r, i) => (
-                <MatchCard key={i} r={r} bets={bets.filter(b => b.kind === 'round' && b.selection?.round === i)} />
+                <React.Fragment key={i}>
+                  <MatchCard r={r} bets={bets.filter(b => b.kind === 'round' && b.selection?.round === i)} />
+                  {i === recapLastGroupIdx && (
+                    <GroupTable rounds={result.rounds} revealIdx={result.rounds.length} />
+                  )}
+                </React.Fragment>
               ))}
             </div>
           </div>

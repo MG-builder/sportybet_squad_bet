@@ -121,6 +121,37 @@ body { overflow-x: hidden; }
   color: #101010;
 }
 
+/* Locked chips — formation and From memory are fixed in quick play. Fading
+   the whole chip keeps the selected one readable (you can still see WHICH
+   formation you were given) while making clear none of them can be changed.
+   Placed after :hover and .active so both are neutralised. */
+.chip:disabled,
+.chip:disabled:hover,
+.dark .chip:disabled:hover {
+  opacity: 0.38;
+  cursor: not-allowed;
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(16, 16, 16, 0.45);
+}
+.dark .chip:disabled,
+.dark .chip:disabled:hover {
+  border-color: rgba(237, 229, 210, 0.45);
+}
+/* The one that IS selected keeps its fill, so the locked choice stays legible */
+.chip.active:disabled,
+.chip.active:disabled:hover {
+  background: #101010;
+  color: #ede5d2;
+  border-style: solid;
+  opacity: 0.45;
+}
+.dark .chip.active:disabled,
+.dark .chip.active:disabled:hover {
+  background: #ede5d2;
+  color: #101010;
+}
+
 /* Pitch */
 .pitch {
   position: relative;
