@@ -55,7 +55,12 @@
       };
     </script>
 
-    <link rel="stylesheet" href="./src/styles.css" />
+    <!-- Cache-busted like the modules at the bottom of the file. Without this
+         the browser serves a stale stylesheet and CSS edits appear to do
+         nothing until a hard reload. -->
+    <script>
+      document.write('<link rel="stylesheet" href="./src/styles.css?v=' + Date.now() + '">');
+    </script>
   </head>
   <body class="bg-cream text-ink font-sans antialiased">
     <div id="root"></div>
